@@ -9,8 +9,9 @@ Licensed under LGPLv3, see LICENSE.txt for terms and conditions.
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 # stdlib
-import argparse, os, sys
+import argparse, logging, os, sys
 from os.path import abspath, exists, join
+from itertools import chain
 from traceback import format_exc
 
 # anyjson
@@ -105,36 +106,52 @@ class EnMasse(ManageCommand):
                 sys.exit(self.SYS_ERROR.NO_INPUT)
                 
             json = bunchify(loads(open(input_path).read()))
-            results = self.json_sanity_check(args, json)
-            if results.ok:
-                pass
-                
-            else:
-                
-                out = {}
-                
-                for idx, warning in enumerate(results.warnings, 1):
-                    out['warn{:04}'.format(idx)] = warning.value
-                    
-                for idx, error in enumerate(results.errors, 1):
-                    out['error{:04}'.format(idx)] = error.value
+            
+            warn_idx = 1
+            error_idx = 1
+            out = {}
+            
+            for item in self.sanity_check(args, json):
 
-                cols_width = args.cols_width if args.cols_width else DEFAULT_COLS_WIDTH
-                cols_width = (elem.strip() for elem in cols_width.split(','))
-                cols_width = [int(elem) for elem in cols_width]
-                
-                table = Texttable()
-                table.set_cols_width(cols_width)
-                
-                # Use text ('t') instead of auto so that boolean values don't get converted into ints
-                table.set_cols_dtype(['t', 't']) 
-                
-                rows = [['Key', 'Value']]
-                rows.extend(sorted(out.items()))
-                
-                table.add_rows(rows)
-                
-                self.logger.info(table.draw())
+                for warning in item.warnings:
+                    out['warn{:04}'.format(warn_idx)] = warning.value
+                    warn_idx += 1
+                    
+                for error in item.errors:
+                    out['error{:04}'.format(error_idx)] = error.value
+                    error_idx += 1
+                    
+            cols_width = args.cols_width if args.cols_width else DEFAULT_COLS_WIDTH
+            cols_width = (elem.strip() for elem in cols_width.split(','))
+            cols_width = [int(elem) for elem in cols_width]
+            
+            table = Texttable()
+            table.set_cols_width(cols_width)
+            
+            # Use text ('t') instead of auto so that boolean values don't get converted into ints
+            table.set_cols_dtype(['t', 't']) 
+            
+            rows = [['Key', 'Value']]
+            rows.extend(sorted(out.items()))
+            
+            table.add_rows(rows)
+            
+            warn_no = warn_idx-1
+            error_no = error_idx-1
+            
+            warn_plural = '' if warn_no == 1 else 's'
+            error_plural = '' if error_no == 1 else 's'
+            
+            if warn_no or error_no:
+                if error_no:
+                    level = logging.ERROR
+                else:
+                    level = logging.WARN
+                    
+                prefix = '{} warning{} and {} error{} found:\n'.format(warn_no, warn_plural, error_no, error_plural)
+                self.logger.log(level, prefix + table.draw())
+            else:
+                self.logger.info('All checks OK')
                 
 # ##############################################################################
 
@@ -220,8 +237,24 @@ class EnMasse(ManageCommand):
                 include, abs_path, len_keys, '\n'.join(' - {}'.format(name) for name in keys), exc_pretty)
             errors.append(Error(raw, value))
             
+        self.logger.error('JSON sanity check failed')
         return Results(warnings, errors)
     
+# ##############################################################################
+
+    def find_missing_auth(self, json):
+        missing = []
+        
+        return Results([], [])
+
+# ##############################################################################
+
+    def sanity_check(self, args, json):
+        json_results = self.json_sanity_check(args, json)
+        missing_auth = self.find_missing_auth(json)
+        
+        return [json_results, missing_auth]
+
 # ##############################################################################
 
 def main():
