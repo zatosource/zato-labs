@@ -18,6 +18,9 @@ from anyjson import loads
 # Bunch
 from bunch import bunchify
 
+# Pip
+from pip import download
+
 # Texttable
 from texttable import Texttable
 
@@ -45,6 +48,12 @@ outconn-zmq
 """
 
 DEFAULT_COLS_WIDTH = '15,100'
+
+class _DummyLink(object):
+    """ Pip requires URLs to have a .url attribute.
+    """
+    def __init__(self, url):
+        self.url = url
 
 class Warning(object):
     def __init__(self, value_raw, value):
@@ -95,16 +104,16 @@ class EnMasse(ManageCommand):
                 sys.exit(self.SYS_ERROR.NO_INPUT)
                 
             json = bunchify(loads(open(input_path).read()))
-            results = self.json_sanity_check(json)
+            results = self.json_sanity_check(args, json)
             if results.ok:
-                print(results)
+                pass
                 
             else:
                 
                 out = {}
                 
                 for idx, warning in enumerate(results.warnings, 1):
-                    out['warn{}'.format(idx)] = warning.value
+                    out['warn{:04}'.format(idx)] = warning.value
                     
                 for idx, error in enumerate(results.errors, 1):
                     out['error{}'.format(idx)] = warning.value
@@ -126,18 +135,22 @@ class EnMasse(ManageCommand):
                 
                 self.logger.info(table.draw())
                 
-    def json_find_include_dups(self, json):
-        
-        # Find duplicate includes first
-        seen_includes = []
-        duplicate_includes = []
-        
+# ##############################################################################
+
+    def _get_json_includes(self, json):
         for key in sorted(json):
             for value in json[key]:
                 if isinstance(value, basestring):
-                    if value in seen_includes:
-                        duplicate_includes.append((key, value))
-                    seen_includes.append(value)
+                    yield key, value
+                
+    def json_find_include_dups(self, json):
+        seen_includes = []
+        duplicate_includes = []
+        
+        for key, value in self._get_json_includes(json):
+            if value in seen_includes:
+                duplicate_includes.append((key, value))
+            seen_includes.append(value)
                     
         dups = {}
         for key, value in duplicate_includes:
@@ -145,18 +158,39 @@ class EnMasse(ManageCommand):
             dup_keys.append(key)
             
         return dups
+    
+    def json_find_missing_includes(self, curdir, json):
+        missing = {}
+        for key in sorted(json):
+            for value in json[key]:
+                if isinstance(value, basestring):
+                    if download.is_file_url(_DummyLink(value)):
+                        abs_value = abspath(join(curdir, value.replace('file://', '')))
+                        if not exists(abs_value):
+                            item = missing.setdefault((value, abs_value), [])
+                            item.append(key)
+                            
+        return missing
             
-    def json_sanity_check(self, json):
+    def json_sanity_check(self, args, json):
         warnings = []
         errors = []
         
-        for dup, keys in self.json_find_include_dups(json).items():
+        for dup, keys in sorted(self.json_find_include_dups(json).items()):
             len_keys = len(keys)
             keys = sorted(set(keys))
             value = '{} included multiple times ({}) \n{}'.format(dup, len_keys, '\n'.join(' - {}'.format(name) for name in keys))
             warnings.append(Warning(dup, value))
             
+        for (missing, missing_abs), keys in sorted(self.json_find_missing_includes(args.curdir, json).items()):
+            len_keys = len(keys)
+            keys = sorted(set(keys))
+            value = '{} ({}) not found but defined ({}) \n{}'.format(missing, missing_abs, len_keys, '\n'.join(' - {}'.format(name) for name in keys))
+            warnings.append(Warning((missing, missing_abs), value))
+            
         return Results(warnings, errors)
+    
+# ##############################################################################
 
 def main():
     parser = argparse.ArgumentParser(add_help=True, description=EnMasse.__doc__)
