@@ -11,6 +11,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 # stdlib
 import argparse, os, sys
 from os.path import abspath, exists, join
+from traceback import format_exc
 
 # anyjson
 from anyjson import loads
@@ -116,7 +117,7 @@ class EnMasse(ManageCommand):
                     out['warn{:04}'.format(idx)] = warning.value
                     
                 for idx, error in enumerate(results.errors, 1):
-                    out['error{}'.format(idx)] = warning.value
+                    out['error{:04}'.format(idx)] = error.value
 
                 cols_width = args.cols_width if args.cols_width else DEFAULT_COLS_WIDTH
                 cols_width = (elem.strip() for elem in cols_width.split(','))
@@ -165,28 +166,59 @@ class EnMasse(ManageCommand):
             for value in json[key]:
                 if isinstance(value, basestring):
                     if download.is_file_url(_DummyLink(value)):
-                        abs_value = abspath(join(curdir, value.replace('file://', '')))
-                        if not exists(abs_value):
-                            item = missing.setdefault((value, abs_value), [])
+                        abs_path = abspath(join(curdir, value.replace('file://', '')))
+                        if not exists(abs_path):
+                            item = missing.setdefault((value, abs_path), [])
                             item.append(key)
-                            
         return missing
+    
+    def json_find_unparsable_includes(self, curdir, json, missing):
+        unparsable = {}
+        
+        for key in sorted(json):
+            for value in json[key]:
+                if isinstance(value, basestring):
+                    if download.is_file_url(_DummyLink(value)):
+                        abs_path = abspath(join(curdir, value.replace('file://', '')))
+                        
+                        # No point in parsing what is already known not to exist
+                        if abs_path not in missing:
+                            try:
+                                loads(open(abs_path).read())
+                            except Exception, e:
+                                exc_pretty = format_exc(e)
+                                
+                                item = unparsable.setdefault((value, abs_path, exc_pretty), [])
+                                item.append(key)
+
+        return unparsable
             
     def json_sanity_check(self, args, json):
         warnings = []
         errors = []
         
-        for dup, keys in sorted(self.json_find_include_dups(json).items()):
+        for raw, keys in sorted(self.json_find_include_dups(json).items()):
             len_keys = len(keys)
             keys = sorted(set(keys))
-            value = '{} included multiple times ({}) \n{}'.format(dup, len_keys, '\n'.join(' - {}'.format(name) for name in keys))
-            warnings.append(Warning(dup, value))
+            value = '{} included multiple times ({}) \n{}'.format(raw, len_keys, '\n'.join(' - {}'.format(name) for name in keys))
+            errors.append(Error(raw, value))
             
-        for (missing, missing_abs), keys in sorted(self.json_find_missing_includes(args.curdir, json).items()):
+        missing_items = sorted(self.json_find_missing_includes(args.curdir, json).items())
+        for raw, keys in missing_items:
+            missing, missing_abs = raw
             len_keys = len(keys)
             keys = sorted(set(keys))
             value = '{} ({}) not found but defined ({}) \n{}'.format(missing, missing_abs, len_keys, '\n'.join(' - {}'.format(name) for name in keys))
-            warnings.append(Warning((missing, missing_abs), value))
+            errors.append(Error(raw, value))
+            
+        unparsable = self.json_find_unparsable_includes(args.curdir, json, [elem[0][1] for elem in missing_items])
+        for raw, keys in unparsable.items():
+            include, abs_path, exc_pretty = raw
+            len_keys = len(keys)
+            keys = sorted(set(keys))
+            value = '{} ({}) could not be parsed as JSON, used in ({})\n{} \n{}'.format(
+                include, abs_path, len_keys, '\n'.join(' - {}'.format(name) for name in keys), exc_pretty)
+            errors.append(Error(raw, value))
             
         return Results(warnings, errors)
     
