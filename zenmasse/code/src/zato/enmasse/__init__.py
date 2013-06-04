@@ -11,6 +11,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 # stdlib
 import argparse, logging, os, sys
 from os.path import abspath, exists, join
+from contextlib import closing
 from itertools import chain
 from traceback import format_exc
 
@@ -18,7 +19,7 @@ from traceback import format_exc
 from anyjson import loads
 
 # Bunch
-from bunch import bunchify
+from bunch import Bunch, bunchify
 
 # Pip
 from pip import download
@@ -31,6 +32,10 @@ from zato.cli import ManageCommand, ZATO_INFO_FILE
 from zato.cli.check_config import CheckConfig
 from zato.cli.zato_command import add_opts, get_parser
 from zato.client import AnyServiceInvoker
+from zato.common.crypto import CryptoManager
+from zato.common.odb.model import ConnDefAMQP, ConnDefWMQ, HTTPBasicAuth, \
+     HTTPSOAP, Server, Service, TechnicalAccount, to_json, WSSDefinition
+from zato.common.util import get_config
 
 """
 channel-amqp
@@ -51,10 +56,6 @@ outconn-zmq
 """
 
 DEFAULT_COLS_WIDTH = '15,100'
-
-class ZatoClient(AnyServiceInvoker):
-    def __init__(self, server_conf):
-        self.server_conf = server_conf
 
 class _DummyLink(object):
     """ Pip requires URLs to have a .url attribute.
@@ -82,11 +83,18 @@ class Results(object):
     
     ok = property(_get_ok)
     
+class ZatoClient(AnyServiceInvoker):
+    def __init__(self, *args, **kwargs):
+        super(ZatoClient, self).__init__(*args, **kwargs)
+        self.cluster_id = None
+        self.odb_session = None
+    
 class EnMasse(ManageCommand):
     """ Creates server objects en masse.
     """
     # TODO: Ping outgoing connections (at least check ports)
     # TODO: --delete-all-first must never delete Zato stuff
+    # TODO: Make sure any new connector-based connections are not active by default
 
     class SYS_ERROR(ManageCommand.SYS_ERROR):
         NO_INPUT = 11
@@ -97,6 +105,10 @@ class EnMasse(ManageCommand):
         cc= CheckConfig(args)
         cc.show_output = False
         cc.execute(args)
+
+        # Get client and issue a sanity check as quickly as possible
+        self.set_client(args)
+        self.client.invoke('zato.ping')
         
         if args.input:
             input_path = self.ensure_input_exists(args)
@@ -106,8 +118,64 @@ class EnMasse(ManageCommand):
             if warn_err:
                 self.report_warnings_errors(args, warn_err, warn_no, error_no)
                 
+        self.client.session.close()
         self.logger.info('All checks OK')
-
+        
+# ##############################################################################
+        
+        
+    def set_client(self, args):
+        #
+        # TODO: Much of it is copy/pasted from 'zato invoke', this needs to be refactored
+        #       before 'zato enmasse' gets into the core.
+        #
+        
+        repo_dir = os.path.join(os.path.abspath(os.path.join(args.path)), 'config', 'repo')
+        config = get_config(repo_dir, 'server.conf')
+        
+        priv_key_location = os.path.abspath(os.path.join(repo_dir, config.crypto.priv_key_location))
+        
+        cm = CryptoManager(priv_key_location=priv_key_location)
+        cm.load_keys()
+        
+        engine_args = Bunch()
+        engine_args.odb_type = config.odb.engine
+        engine_args.odb_user = config.odb.username
+        engine_args.odb_password = cm.decrypt(config.odb.password)
+        engine_args.odb_host = config.odb.host
+        engine_args.odb_db_name = config.odb.db_name
+        
+        engine = self._get_engine(engine_args)
+        session = self._get_session(engine)
+        
+        auth = None
+        with closing(session) as session:
+            cluster = session.query(Server).\
+                filter(Server.token == config.main.token).\
+                one().cluster
+            
+            channel = session.query(HTTPSOAP).\
+                filter(HTTPSOAP.cluster_id == cluster.id).\
+                filter(HTTPSOAP.url_path == '/zato/admin/invoke').\
+                one()
+            
+            if channel.security_id:
+                security = session.query(HTTPBasicAuth).\
+                    filter(HTTPBasicAuth.id == channel.security_id).\
+                    first()
+                
+                if security:
+                    auth = (security.username, security.password)
+                    
+        self.client = ZatoClient('http://{}'.format(config.main.gunicorn_bind), 
+            '/zato/admin/invoke', auth, max_response_repr=15000)
+        
+        self.client.cluster_id = session.query(Server).\
+            filter(Server.token == config.main.token).\
+            one().cluster_id
+        
+        self.client.odb_session = session
+        
 # ##############################################################################
 
     def ensure_input_exists(self, args):
@@ -269,7 +337,35 @@ class EnMasse(ManageCommand):
 # ##############################################################################
 
     def find_missing_defs(self, json):
-        missing = []
+        
+        def get_fields(model):
+            return loads(to_json(item))[0]['fields']
+        
+        sec_defs = []
+        amqp_defs = []
+        jms_wmq_defs = []
+        
+        basic_auth = self.client.odb_session.query(HTTPBasicAuth).\
+            filter(HTTPBasicAuth.cluster_id == self.client.cluster_id)
+            
+        tech_acc = self.client.odb_session.query(TechnicalAccount).\
+            filter(TechnicalAccount.cluster_id == self.client.cluster_id)
+        
+        wss = self.client.odb_session.query(WSSDefinition).\
+            filter(WSSDefinition.cluster_id == self.client.cluster_id)
+        
+        for query in(basic_auth, tech_acc, wss):
+            for item in query.all():
+                sec_defs.append(get_fields(item))
+                
+        for item in self.client.odb_session.query(ConnDefAMQP).\
+            filter(ConnDefAMQP.cluster_id == self.client.cluster_id).all():
+            amqp_defs.append(get_fields(item))
+            
+        response = self.client.invoke('zato.definition.jms-wmq.get-list', {'cluster_id':self.client.cluster_id})
+        if response.ok:
+            for item in response.data:
+                jms_wmq_defs.append(item)
         
         return Results([], [])
 
@@ -279,17 +375,19 @@ class EnMasse(ManageCommand):
         
         # Local JSON sanity check first
         json_results = self.json_sanity_check(args, json)
-        if json_results:
-            self.logger.error('JSON sanity check failed')        
-            return [json_results]
+        '''if json_results:
+            #self.logger.error('JSON sanity check failed')        
+            #return [json_results] # TODO: Uncomment it
+            return []'''
         
         # Grab everything from ODB and check if local JSON wants to overrite anything.
         # Fail if it does and -f (force) is not set.
         
-        missing_auth = self.find_missing_auth(json)
+        missing_defs = self.find_missing_defs(json)
+        if missing_defs:
+            self.logger.error('Failed to find all definitions needed')        
+            return [missing_defs]
         
-        return [json_results, missing_auth]
-
 # ##############################################################################
 
 def main():
