@@ -30,6 +30,7 @@ from texttable import Texttable
 from zato.cli import ManageCommand, ZATO_INFO_FILE
 from zato.cli.check_config import CheckConfig
 from zato.cli.zato_command import add_opts, get_parser
+from zato.client import AnyServiceInvoker
 
 """
 channel-amqp
@@ -50,6 +51,10 @@ outconn-zmq
 """
 
 DEFAULT_COLS_WIDTH = '15,100'
+
+class ZatoClient(AnyServiceInvoker):
+    def __init__(self, server_conf):
+        self.server_conf = server_conf
 
 class _DummyLink(object):
     """ Pip requires URLs to have a .url attribute.
@@ -76,82 +81,104 @@ class Results(object):
         return not(self.warnings or self.errors)
     
     ok = property(_get_ok)
-
+    
 class EnMasse(ManageCommand):
     """ Creates server objects en masse.
     """
+    # TODO: Ping outgoing connections (at least check ports)
+    # TODO: --delete-all-first must never delete Zato stuff
+
     class SYS_ERROR(ManageCommand.SYS_ERROR):
         NO_INPUT = 11
         
     def _on_server(self, args):
         
-        # Sanity check
+        # Checks if connections to ODB/Redis are configured properly
         cc= CheckConfig(args)
         cc.show_output = False
         cc.execute(args)
         
-        # TODO: Check if JSON doesn't define anything twice
-        # TODO: Ping outgoing connections (at least check ports)
-        
-        # TODO: --delete-all-first must never delete Zato stuff
-        
-        # TODO: Warn on duplicate includes
-        
         if args.input:
-            input_path = abspath(join(args.curdir, args.input))
-            if not exists(input_path):
-                self.logger.error('No such path: [{}]'.format(input_path))
-
-                # TODO: ManageCommand should not ignore returned exit codes
-                sys.exit(self.SYS_ERROR.NO_INPUT)
-                
+            input_path = self.ensure_input_exists(args)
             json = bunchify(loads(open(input_path).read()))
             
-            warn_idx = 1
-            error_idx = 1
-            out = {}
-            
-            for item in self.sanity_check(args, json):
+            warn_err, warn_no, error_no = self.find_warnings_errors(args, json)
+            if warn_err:
+                self.report_warnings_errors(args, warn_err, warn_no, error_no)
+                
+        self.logger.info('All checks OK')
 
-                for warning in item.warnings:
-                    out['warn{:04}'.format(warn_idx)] = warning.value
-                    warn_idx += 1
-                    
-                for error in item.errors:
-                    out['error{:04}'.format(error_idx)] = error.value
-                    error_idx += 1
-                    
-            cols_width = args.cols_width if args.cols_width else DEFAULT_COLS_WIDTH
-            cols_width = (elem.strip() for elem in cols_width.split(','))
-            cols_width = [int(elem) for elem in cols_width]
+# ##############################################################################
+
+    def ensure_input_exists(self, args):
+        input_path = abspath(join(args.curdir, args.input))
+        if not exists(input_path):
+            self.logger.error('No such path: [{}]'.format(input_path))
+
+            # TODO: ManageCommand should not ignore exit codes subclasses return
+            sys.exit(self.SYS_ERROR.NO_INPUT)
             
-            table = Texttable()
-            table.set_cols_width(cols_width)
+        return input_path
+
+# ##############################################################################
+    
+    def find_warnings_errors(self, args, json):
+        
+        warn_idx = 1
+        error_idx = 1
+        warn_err = {}
+        
+        for item in self.sanity_check(args, json):
+
+            for warning in item.warnings:
+                warn_err['warn{:04}'.format(warn_idx)] = warning.value
+                warn_idx += 1
+                
+            for error in item.errors:
+                warn_err['error{:04}'.format(error_idx)] = error.value
+                error_idx += 1
+                
+        warn_no = warn_idx-1
+        error_no = error_idx-1
+                
+        return warn_err, warn_no, error_no
             
-            # Use text ('t') instead of auto so that boolean values don't get converted into ints
-            table.set_cols_dtype(['t', 't']) 
-            
-            rows = [['Key', 'Value']]
-            rows.extend(sorted(out.items()))
-            
-            table.add_rows(rows)
-            
-            warn_no = warn_idx-1
-            error_no = error_idx-1
-            
-            warn_plural = '' if warn_no == 1 else 's'
-            error_plural = '' if error_no == 1 else 's'
-            
-            if warn_no or error_no:
-                if error_no:
-                    level = logging.ERROR
-                else:
-                    level = logging.WARN
-                    
-                prefix = '{} warning{} and {} error{} found:\n'.format(warn_no, warn_plural, error_no, error_plural)
-                self.logger.log(level, prefix + table.draw())
+    def report_warnings_errors(self, args, warn_err, warn_no, error_no):
+
+        table = self.get_table(args, warn_err)        
+        
+        warn_plural = '' if warn_no == 1 else 's'
+        error_plural = '' if error_no == 1 else 's'
+        
+        if warn_no or error_no:
+            if error_no:
+                level = logging.ERROR
             else:
-                self.logger.info('All checks OK')
+                level = logging.WARN
+                
+            prefix = '{} warning{} and {} error{} found:\n'.format(warn_no, warn_plural, error_no, error_plural)
+            self.logger.log(level, prefix + table.draw())
+
+# ##############################################################################
+
+    def get_table(self, args, out):
+        
+        cols_width = args.cols_width if args.cols_width else DEFAULT_COLS_WIDTH
+        cols_width = (elem.strip() for elem in cols_width.split(','))
+        cols_width = [int(elem) for elem in cols_width]
+        
+        table = Texttable()
+        table.set_cols_width(cols_width)
+        
+        # Use text ('t') instead of auto so that boolean values don't get converted into ints
+        table.set_cols_dtype(['t', 't']) 
+        
+        rows = [['Key', 'Value']]
+        rows.extend(sorted(out.items()))
+        
+        table.add_rows(rows)
+        
+        return table
                 
 # ##############################################################################
 
@@ -237,12 +264,11 @@ class EnMasse(ManageCommand):
                 include, abs_path, len_keys, '\n'.join(' - {}'.format(name) for name in keys), exc_pretty)
             errors.append(Error(raw, value))
             
-        self.logger.error('JSON sanity check failed')
         return Results(warnings, errors)
     
 # ##############################################################################
 
-    def find_missing_auth(self, json):
+    def find_missing_defs(self, json):
         missing = []
         
         return Results([], [])
@@ -250,7 +276,16 @@ class EnMasse(ManageCommand):
 # ##############################################################################
 
     def sanity_check(self, args, json):
+        
+        # Local JSON sanity check first
         json_results = self.json_sanity_check(args, json)
+        if json_results:
+            self.logger.error('JSON sanity check failed')        
+            return [json_results]
+        
+        # Grab everything from ODB and check if local JSON wants to overrite anything.
+        # Fail if it does and -f (force) is not set.
+        
         missing_auth = self.find_missing_auth(json)
         
         return [json_results, missing_auth]
@@ -263,10 +298,9 @@ def main():
     parser.add_argument('--verbose', help='Show verbose output', action='store_true')
     parser.add_argument('--store-config', 
         help='Whether to store config options in a file for a later use', action='store_true')
-    parser.add_argument('-i', help='Run in interactive mode. Can be used with --dry-run. Excludes -f.', action='store_true')
     parser.add_argument('--collect-only', help='Only create a single JSON document containing all objects', action='store_true')
     parser.add_argument('--delete-all-first', help='Deletes all existing objects before new ones are created', action='store_true')
-    parser.add_argument('-f', help='Force replacing already existing objects. Excludes -i.', action='store_true')
+    parser.add_argument('-f', help='Force replacing objects already existing in ODB', action='store_true')
     parser.add_argument('--dry-run', help="Don't really do anything, only show what will be done. Can be used with -i.", action='store_true')
     parser.add_argument('--input', help="Path to an input JSON document")
     parser.add_argument('--cols_width', help='A list of columns width to use for the table output, default: {}'.format(DEFAULT_COLS_WIDTH))
