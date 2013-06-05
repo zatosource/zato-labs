@@ -34,7 +34,7 @@ from zato.cli.zato_command import add_opts, get_parser
 from zato.client import AnyServiceInvoker
 from zato.common.crypto import CryptoManager
 from zato.common.odb.model import ConnDefAMQP, ConnDefWMQ, HTTPBasicAuth, \
-     HTTPSOAP, Server, Service, TechnicalAccount, to_json, WSSDefinition
+     HTTPSOAP, SecurityBase, Server, Service, TechnicalAccount, to_json, WSSDefinition
 from zato.common.util import get_config
 
 """
@@ -101,6 +101,9 @@ class EnMasse(ManageCommand):
         
     def _on_server(self, args):
         
+        self.odb_objects = Bunch()
+        self.objects = Bunch()
+        
         # Checks if connections to ODB/Redis are configured properly
         cc= CheckConfig(args)
         cc.show_output = False
@@ -113,6 +116,8 @@ class EnMasse(ManageCommand):
         if args.input:
             input_path = self.ensure_input_exists(args)
             json = bunchify(loads(open(input_path).read()))
+            
+            self.grab_odb_objects(json)
             
             warn_err, warn_no, error_no = self.find_warnings_errors(args, json)
             if warn_err:
@@ -336,14 +341,14 @@ class EnMasse(ManageCommand):
     
 # ##############################################################################
 
-    def find_missing_defs(self, json):
+    def grab_odb_objects(self, json):
         
         def get_fields(model):
-            return loads(to_json(item))[0]['fields']
+            return Bunch(loads(to_json(item))[0]['fields'])
         
-        sec_defs = []
-        amqp_defs = []
-        jms_wmq_defs = []
+        self.odb_objects.sec_defs = []
+        self.odb_objects.amqp_defs = []
+        self.odb_objects.jms_wmq_defs = []
         
         basic_auth = self.client.odb_session.query(HTTPBasicAuth).\
             filter(HTTPBasicAuth.cluster_id == self.client.cluster_id)
@@ -356,18 +361,47 @@ class EnMasse(ManageCommand):
         
         for query in(basic_auth, tech_acc, wss):
             for item in query.all():
-                sec_defs.append(get_fields(item))
+                self.odb_objects.sec_defs.append(get_fields(item))
                 
         for item in self.client.odb_session.query(ConnDefAMQP).\
             filter(ConnDefAMQP.cluster_id == self.client.cluster_id).all():
-            amqp_defs.append(get_fields(item))
-            
-        response = self.client.invoke('zato.definition.jms-wmq.get-list', {'cluster_id':self.client.cluster_id})
-        if response.ok:
-            for item in response.data:
-                jms_wmq_defs.append(item)
+            self.odb_objects.amqp_defs.append(get_fields(item))
+
+        service_key = {
+            'zato.definition.jms-wmq.get-list':'jms_wmq_defs'
+            }
+        
+        for service, key in service_key.items():
+            response = self.client.invoke(service, {'cluster_id':self.client.cluster_id})
+            if response.ok:
+                for item in response.data:
+                    self.odb_objects[key].append(item)
         
         return Results([], [])
+    
+# ##############################################################################
+    
+    def find_overrides(self, json):
+        return []
+    
+# ##############################################################################
+
+    def find_missing_defs(self, json):
+        
+        def get_needed_sec_defs(json):
+            for key in json:
+                if 'plain-http' in key or 'soap' in key:
+                    for item in json[key]:
+                        #yield item.get('sec-def', None)
+                        print(item, type(item))
+                        
+            return []
+        
+        def get_needed_amqp_defs(json):
+            pass
+        
+        def get_needed_jms_wmq_defs(json):
+            pass
 
 # ##############################################################################
 
@@ -380,13 +414,22 @@ class EnMasse(ManageCommand):
             #return [json_results] # TODO: Uncomment it
             return []'''
         
-        # Grab everything from ODB and check if local JSON wants to overrite anything.
+        # Check if local JSON wants to overrite anything already defined in ODB.
         # Fail if it does and -f (force) is not set.
         
-        missing_defs = self.find_missing_defs(json)
-        if missing_defs:
-            self.logger.error('Failed to find all definitions needed')        
-            return [missing_defs]
+        overrides = self.find_overrides(json)
+        if overrides:
+            self.logger.error('Found conflicts between local JSON and ODB')        
+            
+        return []
+        
+        # Merge local JSON with what was pulled from ODB and only then find
+        # any missing definitions.
+        
+        #missing_defs = self.find_missing_defs(json)
+        #if missing_defs:
+        #    self.logger.error('Failed to find all definitions needed')        
+        #    return [missing_defs]
         
 # ##############################################################################
 
