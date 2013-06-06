@@ -2,110 +2,92 @@
    "def-sec": [
        {"type": "basicauth", "name":"mybasicauth", "realm":"myrealm", "password":"mypassword1"},
        {"type": "wss", "name":"mywss", "password":"mypassword2"},
-       {"type": "techacc", "name":"mytechacc", "password":"mypassword3"},
-       "file://./myinclude.json",
-       "file://./myinclude2.json"
+       {"type": "techacc", "name":"mytechacc", "password":"mypassword3"}
    ],
    
    "def-amqp": [
        {"name": "myamqp1", "host":"localhost", "port":5672, "username":"user1", "password":"password1"},
        {"name": "myamqp2", "host":"localhost", "port":5673, "username":"user2", "password":"password2"},
-       "file://./myinclude3.json",
-       "file://./myinclude4.json"
+       "file://./myinclude1.json",
+       "file://./myinclude2.json"
    ],
    
    "def-jms-wmq": [
-       {"name": "myjmswmq", "host":"localhost", "port":1414, "username":"user1"},
-       {"name": "myjmswmq2", "host":"localhost2", "port":1415, "username":"user2"},
-       "file://./myinclude5.json",
-       "file://./myinclude6.json"
+       {"name": "myjmswmq", "host":"localhost", "port":1414},
+       {"name": "myjmswmq2", "host":"localhost2", "port":1415},
+       "file://./myinclude3.json"
    ],
    
    "channel-amqp": [
        {"name": "channel-amqp1", "def": "myamqp1"},
-       {"name": "channel-amqp2", "def": "myamqp2"},
-       "file://./myinclude5.json",
-       "file://./myinclude5.json"
+       {"name": "channel-amqp2", "def": "myamqp2"}
    ],
    
    "channel-jms-wmq": [
        {"name": "channel-jms-wmq1", "def": "myjms-wmq1"},
-       {"name": "channel-jms-wmq2", "def": "myjms-wmq2"},
-       "file://./myinclude.json",
-       "file://./myinclude.json"
+       {"name": "channel-jms-wmq2", "def": "myjms-wmq2"}
    ],
    
    "channel-plain-http": [
        {"name": "channel-myhttp1", "sec-def": "mybasicauth", "host":"test-channel-11.example.com"},
        {"name": "channel-myhttp2", "sec-def": "mywss", "host":"test-channel-12.example.com"},
-       {"name": "channel-myhttp3", "sec-def": "mytechacc", "host":"test-channel-13.example.com"},
-       "file://./myinclude.json",
-       "file://./myinclude.json"
+       {"name": "channel-myhttp3", "sec-def": "mytechacc", "host":"test-channel-13.example.com"}
+       
    ],
    
    "channel-soap": [
        {"name": "channel-soap1", "sec-def": "mybasicauth", "host":"test-channel-11.example.com"},
        {"name": "channel-soap2", "sec-def": "mywss", "host":"test-channel-12.example.com"},
-       {"name": "channel-soap3", "sec-def": "mytechacc", "host":"test-channel-13.example.com"},
-       "file://./myinclude.json",
-       "file://./myinclude.json"
+       {"name": "zato.ping.soap.wss.clear_text", "transport": "soap", "connection":"channel", "sec-def": "mytechacc", "host":"test-channel-13.example.com"}
    ],
    
    "channel-zmq": [
        {"name": "mychannel-zmq1", "host": "channel-zmq1.example.com"},
        {"name": "mychannel-zmq2", "host": "channel-zmq2.example.com"},
-       "file://./myinclude.json",
-       "file://./myinclude.json"
+       "file://./myinclude4.json"
    ],
    
    "outconn-amqp": [
        {"name": "outconn-amqp1", "def": "myamqp"},
-       {"name": "outconn-amqp2", "def": "myamqp"},
-       "file://./myinclude.json",
-       "file://./myinclude.json"
+       {"name": "outconn-amqp2", "def": "myamqp"}
    ],
    
    "outconn-ftp": [
        {"name": "ftp1", "username": "myftp1"},
-       {"name": "ftp2", "username": "myftp2"},
-       "file://./myinclude.json",
-       "file://./myinclude.json"
+       {"name": "ftp2", "username": "myftp2"}
    ],
    
    "outconn-jms-wmq": [
        {"name": "jmswmq1", "def": "myjmswmq"},
        {"name": "jmswmq2", "def": "myjmswmq"},
-       "file://./myinclude.json",
-       "file://./myinclude.json"
+       "file://./myinclude5.json"
    ],
    
    "outconn-plain-http": [
        {"name": "myhttp1", "sec-def": "mybasicauth", "host":"test11.example.com"},
        {"name": "myhttp2", "sec-def": "mywss", "host":"test12.example.com"},
-       {"name": "myhttp3", "sec-def": "mytechacc", "host":"test13.example.com"},
-       "file://./myinclude.json",
-       "file://./myinclude.json"
+       {"name": "myhttp3", "sec-def": "mytechacc", "host":"test13.example.com"}
    ],
    
    "outconn-soap": [
        {"name": "mysoap1", "sec-def": "mybasicauth", "host":"test1.example.com"},
        {"name": "mysoap2", "sec-def": "mywss", "host":"test2.example.com"},
-       {"name": "mysoap3", "sec-def": "mytechacc", "host":"test3.example.com"},
-       "file://./myinclude.json",
-       "file://./myinclude.json"
+       {"name": "mysoap3", "sec-def": "mytechacc", "host":"test3.example.com"}
    ],
    
    "outconn-sql": [
        {"name": "mysql1", "username": "mysql1", "password":"mypassword1", "engine":"postgresql"},
        {"name": "mysql2", "username": "mysql2", "password":"mypassword2", "engine":"oracle"},
-       "file://./myinclude2.json",
-       "file://./myinclude2.json"
+       "file://./myinclude6.json"
    ],
    
    "outconn-zmq": [
        {"name": "myzmq1", "host": "zmq1.example.com"},
-       {"name": "myzmq2", "host": "zmq2.example.com"},
-       "file://./myinclude.json",
-       "file://./myinclude.json"
+       {"name": "myzmq2", "host": "zmq2.example.com"}
+   ],
+   
+   "scheduler": [
+       {"name": "myjob1"},
+       {"name": "myjob2"}
    ]
 }

@@ -101,27 +101,32 @@ class EnMasse(ManageCommand):
         
     def _on_server(self, args):
         
+        self.args = args
+        self.curdir = self.args.curdir
+        self.force_override = self.args.f
+        self.json = None
+        
         self.odb_objects = Bunch()
         self.objects = Bunch()
         
         # Checks if connections to ODB/Redis are configured properly
-        cc= CheckConfig(args)
+        cc = CheckConfig(self.args)
         cc.show_output = False
-        cc.execute(args)
+        cc.execute(self.args)
 
         # Get client and issue a sanity check as quickly as possible
-        self.set_client(args)
+        self.set_client()
         self.client.invoke('zato.ping')
         
-        if args.input:
-            input_path = self.ensure_input_exists(args)
-            json = bunchify(loads(open(input_path).read()))
+        if self.args.input:
+            input_path = self.ensure_input_exists()
+            self.json = bunchify(loads(open(input_path).read()))
             
-            self.grab_odb_objects(json)
+            self.grab_odb_objects()
             
-            warn_err, warn_no, error_no = self.find_warnings_errors(args, json)
+            warn_err, warn_no, error_no = self.run_local_json()
             if warn_err:
-                self.report_warnings_errors(args, warn_err, warn_no, error_no)
+                self.report_warnings_errors(warn_err, warn_no, error_no)
                 
         self.client.session.close()
         self.logger.info('All checks OK')
@@ -129,13 +134,13 @@ class EnMasse(ManageCommand):
 # ##############################################################################
         
         
-    def set_client(self, args):
+    def set_client(self):
         #
         # TODO: Much of it is copy/pasted from 'zato invoke', this needs to be refactored
         #       before 'zato enmasse' gets into the core.
         #
         
-        repo_dir = os.path.join(os.path.abspath(os.path.join(args.path)), 'config', 'repo')
+        repo_dir = os.path.join(os.path.abspath(os.path.join(self.args.path)), 'config', 'repo')
         config = get_config(repo_dir, 'server.conf')
         
         priv_key_location = os.path.abspath(os.path.join(repo_dir, config.crypto.priv_key_location))
@@ -183,8 +188,8 @@ class EnMasse(ManageCommand):
         
 # ##############################################################################
 
-    def ensure_input_exists(self, args):
-        input_path = abspath(join(args.curdir, args.input))
+    def ensure_input_exists(self):
+        input_path = abspath(join(self.curdir, self.args.input))
         if not exists(input_path):
             self.logger.error('No such path: [{}]'.format(input_path))
 
@@ -195,13 +200,13 @@ class EnMasse(ManageCommand):
 
 # ##############################################################################
     
-    def find_warnings_errors(self, args, json):
+    def run_local_json(self):
         
         warn_idx = 1
         error_idx = 1
         warn_err = {}
         
-        for item in self.sanity_check(args, json):
+        for item in self.handle_local_json():
 
             for warning in item.warnings:
                 warn_err['warn{:04}'.format(warn_idx)] = warning.value
@@ -216,9 +221,9 @@ class EnMasse(ManageCommand):
                 
         return warn_err, warn_no, error_no
             
-    def report_warnings_errors(self, args, warn_err, warn_no, error_no):
+    def report_warnings_errors(self, warn_err, warn_no, error_no):
 
-        table = self.get_table(args, warn_err)        
+        table = self.get_table(warn_err)        
         
         warn_plural = '' if warn_no == 1 else 's'
         error_plural = '' if error_no == 1 else 's'
@@ -234,9 +239,9 @@ class EnMasse(ManageCommand):
 
 # ##############################################################################
 
-    def get_table(self, args, out):
+    def get_table(self, out):
         
-        cols_width = args.cols_width if args.cols_width else DEFAULT_COLS_WIDTH
+        cols_width = self.args.cols_width if self.args.cols_width else DEFAULT_COLS_WIDTH
         cols_width = (elem.strip() for elem in cols_width.split(','))
         cols_width = [int(elem) for elem in cols_width]
         
@@ -255,48 +260,49 @@ class EnMasse(ManageCommand):
                 
 # ##############################################################################
 
-    def _get_json_includes(self, json):
-        for key in sorted(json):
-            for value in json[key]:
-                if isinstance(value, basestring):
+    def get_include_abspath(self, curdir, value):
+        return abspath(join(curdir, value.replace('file://', '')))
+    
+    def is_include(self, value):
+        return isinstance(value, basestring)
+
+    def get_json_includes(self):
+        for key in sorted(self.json):
+            for value in self.json[key]:
+                if self.is_include(value):
                     yield key, value
                 
-    def json_find_include_dups(self, json):
-        seen_includes = []
-        duplicate_includes = []
+    def json_find_include_dups(self):
+        seen_includes = {}
         
-        for key, value in self._get_json_includes(json):
-            if value in seen_includes:
-                duplicate_includes.append((key, value))
-            seen_includes.append(value)
-                    
-        dups = {}
-        for key, value in duplicate_includes:
-            dup_keys = dups.setdefault(value, [])
-            dup_keys.append(key)
+        for key, value in self.get_json_includes():
+            keys = seen_includes.setdefault(value, [])
+            keys.append(key)
+            
+        dups = dict((k,v) for (k,v) in seen_includes.items() if len(v) > 1)
             
         return dups
     
-    def json_find_missing_includes(self, curdir, json):
+    def json_find_missing_includes(self):
         missing = {}
-        for key in sorted(json):
-            for value in json[key]:
-                if isinstance(value, basestring):
+        for key in sorted(self.json):
+            for value in self.json[key]:
+                if self.is_include(value):
                     if download.is_file_url(_DummyLink(value)):
-                        abs_path = abspath(join(curdir, value.replace('file://', '')))
+                        abs_path = self.get_include_abspath(self.curdir, value)
                         if not exists(abs_path):
                             item = missing.setdefault((value, abs_path), [])
                             item.append(key)
         return missing
     
-    def json_find_unparsable_includes(self, curdir, json, missing):
+    def json_find_unparsable_includes(self, missing):
         unparsable = {}
         
-        for key in sorted(json):
-            for value in json[key]:
-                if isinstance(value, basestring):
+        for key in sorted(self.json):
+            for value in self.json[key]:
+                if self.is_include(value):
                     if download.is_file_url(_DummyLink(value)):
-                        abs_path = abspath(join(curdir, value.replace('file://', '')))
+                        abs_path = self.get_include_abspath(self.curdir, value)
                         
                         # No point in parsing what is already known not to exist
                         if abs_path not in missing:
@@ -310,45 +316,67 @@ class EnMasse(ManageCommand):
 
         return unparsable
             
-    def json_sanity_check(self, args, json):
+    def json_sanity_check(self):
         warnings = []
         errors = []
         
-        for raw, keys in sorted(self.json_find_include_dups(json).items()):
+        for raw, keys in sorted(self.json_find_include_dups().items()):
             len_keys = len(keys)
             keys = sorted(set(keys))
-            value = '{} included multiple times ({}) \n{}'.format(raw, len_keys, '\n'.join(' - {}'.format(name) for name in keys))
+            value = '{} included multiple times ({}) \n{}'.format(
+                raw, len_keys, '\n'.join(' - {}'.format(name) for name in keys))
             errors.append(Error(raw, value))
             
-        missing_items = sorted(self.json_find_missing_includes(args.curdir, json).items())
+        missing_items = sorted(self.json_find_missing_includes().items())
         for raw, keys in missing_items:
             missing, missing_abs = raw
             len_keys = len(keys)
             keys = sorted(set(keys))
-            value = '{} ({}) not found but defined ({}) \n{}'.format(missing, missing_abs, len_keys, '\n'.join(' - {}'.format(name) for name in keys))
+            value = '{} ({}) missing but needed in multiple definitions ({}) \n{}'.format(
+                missing, missing_abs, len_keys, '\n'.join(' - {}'.format(name) for name in keys))
             errors.append(Error(raw, value))
             
-        unparsable = self.json_find_unparsable_includes(args.curdir, json, [elem[0][1] for elem in missing_items])
+        unparsable = self.json_find_unparsable_includes([elem[0][1] for elem in missing_items])
         for raw, keys in unparsable.items():
             include, abs_path, exc_pretty = raw
             len_keys = len(keys)
+            suffix = '' if len_keys == 1 else 's'
             keys = sorted(set(keys))
-            value = '{} ({}) could not be parsed as JSON, used in ({})\n{} \n{}'.format(
-                include, abs_path, len_keys, '\n'.join(' - {}'.format(name) for name in keys), exc_pretty)
+            value = '{} ({}) could not be parsed as JSON, used in ({}) definition{}\n{} \n{}'.format(
+                include, abs_path, len_keys, suffix, '\n'.join(' - {}'.format(name) for name in keys), exc_pretty)
             errors.append(Error(raw, value))
             
         return Results(warnings, errors)
     
+    def merge_includes(self):
+        json_with_includes = Bunch()
+        for key, values in self.json.items():
+            values_with_includes = json_with_includes.setdefault(key, [])
+            for value in values:
+                if self.is_include(value):
+                    abs_path = self.get_include_abspath(self.curdir, value)
+                    include = Bunch(loads(open(abs_path).read()))
+                    values_with_includes.append(include)
+                else:
+                    values_with_includes.append(value)
+                    
+        self.json = json_with_includes
+        
+    def merge_odb_json(self):
+        for key, value in self.odb_objects.items():
+            #print(key)
+            pass
+    
 # ##############################################################################
 
-    def grab_odb_objects(self, json):
+    def grab_odb_objects(self):
         
         def get_fields(model):
             return Bunch(loads(to_json(item))[0]['fields'])
         
-        self.odb_objects.sec_defs = []
-        self.odb_objects.amqp_defs = []
-        self.odb_objects.jms_wmq_defs = []
+        self.odb_objects.def_sec = []
+        self.odb_objects.def_amqp = []
+        self.odb_objects.http_soap = []
         
         basic_auth = self.client.odb_session.query(HTTPBasicAuth).\
             filter(HTTPBasicAuth.cluster_id == self.client.cluster_id)
@@ -361,28 +389,74 @@ class EnMasse(ManageCommand):
         
         for query in(basic_auth, tech_acc, wss):
             for item in query.all():
-                self.odb_objects.sec_defs.append(get_fields(item))
+                self.odb_objects.def_sec.append(get_fields(item))
                 
         for item in self.client.odb_session.query(ConnDefAMQP).\
             filter(ConnDefAMQP.cluster_id == self.client.cluster_id).all():
-            self.odb_objects.amqp_defs.append(get_fields(item))
+            self.odb_objects.def_amqp.append(get_fields(item))
+            
+        for item in self.client.odb_session.query(HTTPSOAP).\
+            filter(HTTPSOAP.cluster_id == self.client.cluster_id).all():
+            self.odb_objects.http_soap.append(get_fields(item))
 
         service_key = {
-            'zato.definition.jms-wmq.get-list':'jms_wmq_defs'
+            'zato.channel.amqp.get-list':'channel_amqp',
+            'zato.channel.jms-wmq.get-list':'channel_jms_wmq',
+            'zato.channel.zmq.get-list':'channel_zmq',
+            'zato.definition.jms-wmq.get-list':'def_jms_wmq',
+            'zato.outgoing.amqp.get-list':'outconn_amqp',
+            'zato.outgoing.ftp.get-list':'outconn_ftp',
+            'zato.outgoing.jms-wmq.get-list':'outconn_jms_wmq',
+            'zato.outgoing.sql.get-list':'outconn_sql',
+            'zato.outgoing.zmq.get-list':'outconn_zmq',
+            'zato.scheduler.job.get-list':'scheduler',
             }
+        
+        for value in service_key.values():
+            self.odb_objects[value] = []
         
         for service, key in service_key.items():
             response = self.client.invoke(service, {'cluster_id':self.client.cluster_id})
             if response.ok:
                 for item in response.data:
-                    self.odb_objects[key].append(item)
-        
-        return Results([], [])
+                    self.odb_objects[key].append(Bunch(item))
     
 # ##############################################################################
     
-    def find_overrides(self, json):
-        return []
+    def find_overrides(self):
+        warnings = []
+        errors = []
+        
+        def add_warning(key, value_dict, item):
+            raw = (key, value_dict)
+            msg = '{} already exists in ODB {} ({})'.format(value_dict.toDict(), item.toDict(), key)
+            warnings.append(Warning(raw, msg))
+        
+        for key, values in self.json.items():
+            for value_dict in values:
+                value_name = value_dict.get('name')
+                if not value_name:
+                    raw = (key, value_dict)
+                    msg = "{} has no 'name' key ({})".format(value_dict.toDict(), key)
+                    errors.append(Error(raw, msg))
+
+                if 'http' in key or 'soap' in key:
+                    connection, transport = key.split('-', 1)
+                    connection = 'outgoing' if connection == 'outconn' else connection
+                    transport = transport.replace('-', '_')
+                    
+                    for item in self.odb_objects.http_soap:
+                        if connection == item.connection and transport == item.transport:
+                            if value_name == item.name:
+                                add_warning(key, value_dict, item)
+                                
+                else:
+                    odb_defs = self.odb_objects[key.replace('-', '_')]
+                    for odb_def in odb_defs:
+                        if odb_def.name == value_name:
+                            add_warning(key, value_dict, item)
+                
+        return Results(warnings, errors)
     
 # ##############################################################################
 
@@ -393,7 +467,8 @@ class EnMasse(ManageCommand):
                 if 'plain-http' in key or 'soap' in key:
                     for item in json[key]:
                         #yield item.get('sec-def', None)
-                        print(item, type(item))
+                        #print(item, type(item))
+                        pass
                         
             return []
         
@@ -405,31 +480,57 @@ class EnMasse(ManageCommand):
 
 # ##############################################################################
 
-    def sanity_check(self, args, json):
+    def handle_local_json(self):
         
         # Local JSON sanity check first
-        json_results = self.json_sanity_check(args, json)
-        '''if json_results:
-            #self.logger.error('JSON sanity check failed')        
-            #return [json_results] # TODO: Uncomment it
-            return []'''
+        json_sanity_results = self.json_sanity_check()
+        if not json_sanity_results.ok:
+            self.logger.error('JSON sanity check failed')        
+            return [json_sanity_results]
+
+        # Merge all includes into local JSON and validate if every required
+        # input element has been specified.
+        self.merge_includes()
+        
+        self.logger.info('Includes merged in successfully')        
         
         # Check if local JSON wants to overrite anything already defined in ODB.
         # Fail if it does and -f (force) is not set.
-        
-        overrides = self.find_overrides(json)
-        if overrides:
-            self.logger.error('Found conflicts between local JSON and ODB')        
+        overrides_results = self.find_overrides()
+        if not overrides_results.ok:
             
-        return []
+            if overrides_results.errors:
+                return [overrides_results]
+            
+            elif overrides_results.warnings:
+                self.logger.info('Found overrides')
+                
+                if not self.force_override:
+                    self.logger.error('No -f flag set and overrides found, stopping now')
+                    overrides_results.errors = overrides_results.errors + overrides_results.warnings
+                    overrides_results.warnings[:] = []
+                    return [overrides_results]
+                else:
+                    self.logger.info('-f flag set, will override ODB objects')
         
-        # Merge local JSON with what was pulled from ODB and only then find
-        # any missing definitions.
+        # Merge local JSON with what was pulled from ODB
+        self.merge_odb_json()
+        
+        # Find any definitions that are missing even after merging
+        
+        # Find channels that require services that don't exist
+        
+        # Find jobs that require services that don't exist
+        
+        # As a sanity check, validate again if every required
+        # input element has been specified.
         
         #missing_defs = self.find_missing_defs(json)
         #if missing_defs:
         #    self.logger.error('Failed to find all definitions needed')        
         #    return [missing_defs]
+        
+        return []
         
 # ##############################################################################
 
