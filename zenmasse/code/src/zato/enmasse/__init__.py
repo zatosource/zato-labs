@@ -12,6 +12,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import argparse, logging, os, sys
 from os.path import abspath, exists, join
 from contextlib import closing
+from copy import deepcopy
 from itertools import chain
 from traceback import format_exc
 
@@ -363,9 +364,30 @@ class EnMasse(ManageCommand):
         self.json = json_with_includes
         
     def merge_odb_json(self):
-        for key, value in self.odb_objects.items():
-            #print(key)
-            pass
+        merged = deepcopy(self.odb_objects)
+        
+        for json_key, json_elems in self.json.items():
+            if 'http' in json_key or 'soap' in json_key:
+                odb_key = 'http_soap'
+            else:
+                odb_key = json_key.replace('-', '_')
+            for json_elem in json_elems:
+                if 'http' in json_key or 'soap' in json_key:
+                    connection, transport = json_key.split('-', 1)
+                    connection = 'outgoing' if connection == 'outconn' else connection
+                    transport = transport.replace('-', '_')
+                    
+                    for odb_elem in merged.http_soap:
+                        if odb_elem.get('transport') == transport and odb_elem.get('connection') == connection:
+                            if odb_elem.name == json_elem.name:
+                                merged.http_soap.remove(odb_elem)
+                else:
+                    for odb_elem in merged[odb_key]:
+                        if odb_elem.name == json_elem.name:
+                            merged[odb_key].remove(odb_elem)
+                merged[odb_key].append(json_elem)
+                    
+        self.json = merged
     
 # ##############################################################################
 
@@ -454,7 +476,7 @@ class EnMasse(ManageCommand):
                     odb_defs = self.odb_objects[key.replace('-', '_')]
                     for odb_def in odb_defs:
                         if odb_def.name == value_name:
-                            add_warning(key, value_dict, item)
+                            add_warning(key, value_dict, odb_def)
                 
         return Results(warnings, errors)
     
