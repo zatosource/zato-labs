@@ -10,10 +10,12 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 # stdlib
 import argparse, logging, os, sys
-from os.path import abspath, exists, join
 from contextlib import closing
 from copy import deepcopy
+from datetime import datetime
 from itertools import chain
+from json import dumps
+from os.path import abspath, exists, join
 from traceback import format_exc
 
 # anyjson
@@ -101,6 +103,7 @@ class EnMasse(ManageCommand):
         NO_INPUT = 11
         CONFLICTING_OPTIONS = 12
         NO_OPTIONS = 13
+        INVALID_INPUT = 14
         
     def _on_server(self, args):
         
@@ -131,15 +134,35 @@ class EnMasse(ManageCommand):
         if self.has_import and (args.export_local or args.export_odb):
             self.logger.error('Cannot specify import and export options at the same time, stopping now')
             sys.exit(self.SYS_ERROR.CONFLICTING_OPTIONS)
+
+        if args.export_local:
+            input_path = self.ensure_input_exists()
+            self.json = bunchify(loads(open(input_path).read()))
             
+            # Local JSON sanity check first
+            json_sanity_results = self.json_sanity_check()
+            if not json_sanity_results.ok:
+                self.logger.error('JSON sanity check failed')        
+                self.report_warnings_errors([json_sanity_results])
+                sys.exit(self.SYS_ERROR.INVALID_INPUT)
+            
+        # 3) a/b
         if args.export_local and args.export_odb:
             self.export_local_odb()
+            
+        # 1)
         elif args.export_local:
-            self.export_local()
+            if self.report_warnings_errors(self.export_local()):
+                self.save_json()
+            
+        # 2)
         elif args.export_odb:
             self.export_odb()
+           
+        # 4) a/b/c
         elif self.has_import:
             self.import_()
+            
         else:
             self.logger.error('At least one of --export-local, --export-odb or --import is required, stopping now')
             sys.exit(self.SYS_ERROR.NO_OPTIONS)
@@ -167,9 +190,20 @@ class EnMasse(ManageCommand):
         self.client.session.close()
         self.logger.info('All checks OK')
         '''
+
+# ##############################################################################
+
+    def save_json(self):
+        now = datetime.now().isoformat() # Not in UTC, we want to use user's TZ
+        name = 'zato-export-{}.json'.format(now.replace(':', '_').replace('.', '_'))
+        
+        f = open(join(self.curdir, name), 'w')
+        f.write(dumps(self.json, indent=1, sort_keys=True))
+        f.close()
+        
+        self.logger.info('Data exported to {}'.format(f.name))
         
 # ##############################################################################
-        
         
     def set_client(self):
         #
@@ -237,13 +271,13 @@ class EnMasse(ManageCommand):
 
 # ##############################################################################
     
-    def run_local_json(self):
+    def get_warnings_errors(self, items):
         
         warn_idx = 1
         error_idx = 1
         warn_err = {}
         
-        for item in self.handle_local_json():
+        for item in items:
 
             for warning in item.warnings:
                 warn_err['warn{:04}'.format(warn_idx)] = warning.value
@@ -258,8 +292,9 @@ class EnMasse(ManageCommand):
                 
         return warn_err, warn_no, error_no
             
-    def report_warnings_errors(self, warn_err, warn_no, error_no):
+    def report_warnings_errors(self, items):
 
+        warn_err, warn_no, error_no = self.get_warnings_errors(items)
         table = self.get_table(warn_err)        
         
         warn_plural = '' if warn_no == 1 else 's'
@@ -273,6 +308,9 @@ class EnMasse(ManageCommand):
                 
             prefix = '{} warning{} and {} error{} found:\n'.format(warn_no, warn_plural, error_no, error_plural)
             self.logger.log(level, prefix + table.draw())
+        
+        # A signal that we found no warnings nor errors
+        return True
 
 # ##############################################################################
 
@@ -538,22 +576,37 @@ class EnMasse(ManageCommand):
 
 # ##############################################################################
 
-    def handle_local_json(self):
+    def export_local(self):
         
-        # Local JSON sanity check first
-        json_sanity_results = self.json_sanity_check()
-        if not json_sanity_results.ok:
-            self.logger.error('JSON sanity check failed')        
-            return [json_sanity_results]
-
-        # Merge all includes into local JSON and validate if every required
-        # input element has been specified.
+        # Merge all includes into local JSON
         self.merge_includes()
+        self.logger.info('Includes merged in successfully')
         
-        self.logger.info('Includes merged in successfully')        
+        # Find any definitions that are missing even after merging
+        missing_defs = self.find_missing_defs(self.json)
+        if missing_defs:
+            self.logger.error('Failed to find all definitions needed')        
+            return [missing_defs]
         
+        # Find channels that require services that don't exist
+        
+        # Find jobs that require services that don't exist
+        
+        # As a sanity check, validate again if every required
+        # input element has been specified.
+        
+        return []
+    
+    def export_local_odb(self):
+        # Merge all includes into local JSON
+        #self.merge_includes()
+        #self.logger.info('Includes merged in successfully')        
+
+        '''        
         # Check if local JSON wants to overrite anything already defined in ODB.
         # Fail if it does and -f (force) is not set.
+        
+
         overrides_results = self.find_overrides()
         if not overrides_results.ok:
             
@@ -573,22 +626,7 @@ class EnMasse(ManageCommand):
         
         # Merge local JSON with what was pulled from ODB
         self.merge_odb_json()
-        
-        # Find any definitions that are missing even after merging
-        
-        # Find channels that require services that don't exist
-        
-        # Find jobs that require services that don't exist
-        
-        # As a sanity check, validate again if every required
-        # input element has been specified.
-        
-        #missing_defs = self.find_missing_defs(json)
-        #if missing_defs:
-        #    self.logger.error('Failed to find all definitions needed')        
-        #    return [missing_defs]
-        
-        return []
+        '''
         
 # ##############################################################################
 
