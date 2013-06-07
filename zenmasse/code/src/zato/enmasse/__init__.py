@@ -309,8 +309,9 @@ class EnMasse(ManageCommand):
             prefix = '{} warning{} and {} error{} found:\n'.format(warn_no, warn_plural, error_no, error_plural)
             self.logger.log(level, prefix + table.draw())
         
-        # A signal that we found no warnings nor errors
-        return True
+        else:
+            # A signal that we found no warnings nor errors
+            return True
 
 # ##############################################################################
 
