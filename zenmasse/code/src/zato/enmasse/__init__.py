@@ -99,17 +99,52 @@ class EnMasse(ManageCommand):
 
     class SYS_ERROR(ManageCommand.SYS_ERROR):
         NO_INPUT = 11
+        CONFLICTING_OPTIONS = 12
+        NO_OPTIONS = 13
         
     def _on_server(self, args):
         
         self.args = args
         self.curdir = self.args.curdir
         self.force_override = self.args.f
+        self.has_import = getattr(args, 'import')
         self.json = None
         
         self.odb_objects = Bunch()
         self.objects = Bunch()
         
+        # 
+        # Tasks and scenarios
+        #
+        # 1) Export all local JSON files into one (--export-local)
+        # 2) Export all definitions from ODB (--export-odb)
+        # -> 3) Export all local JSON files with ODB definitions merged into one (--export-local --export-odb):
+        #    3a) bail out if local JSON overrides any from ODB (no -f)
+        #    3b) override whatever is found in ODB with values from JSON (-f)
+        # -> 4) Import definitions from a local JSON file (--import)
+        #    4a) delete all ODB definitions before importing a local JSON (--delete-all-odb-first)
+        #    4b) bail out if local JSON overrides any from ODB (no -f)
+        #    4c) override whatever is found in ODB with values from JSON (-f)
+        #
+        
+        # Imports and export are mutually excluding
+        if self.has_import and (args.export_local or args.export_odb):
+            self.logger.error('Cannot specify import and export options at the same time, stopping now')
+            sys.exit(self.SYS_ERROR.CONFLICTING_OPTIONS)
+            
+        if args.export_local and args.export_odb:
+            self.export_local_odb()
+        elif args.export_local:
+            self.export_local()
+        elif args.export_odb:
+            self.export_odb()
+        elif self.has_import:
+            self.import_()
+        else:
+            self.logger.error('At least one of --export-local, --export-odb or --import is required, stopping now')
+            sys.exit(self.SYS_ERROR.NO_OPTIONS)
+        
+        '''
         # Checks if connections to ODB/Redis are configured properly
         cc = CheckConfig(self.args)
         cc.show_output = False
@@ -131,6 +166,7 @@ class EnMasse(ManageCommand):
                 
         self.client.session.close()
         self.logger.info('All checks OK')
+        '''
         
 # ##############################################################################
         
@@ -562,14 +598,15 @@ def main():
     parser.add_argument('--verbose', help='Show verbose output', action='store_true')
     parser.add_argument('--store-config', 
         help='Whether to store config options in a file for a later use', action='store_true')
-    parser.add_argument('--collect-only', help='Only create a single JSON document containing all objects', action='store_true')
-    parser.add_argument('--delete-all-first', help='Deletes all existing objects before new ones are created', action='store_true')
+    parser.add_argument('--export-local', help='Export local JSON definitions into one file (can be used with --export-odb)', action='store_true')
+    parser.add_argument('--export-odb', help='Export ODB definitions into one file (can be used with --export-local)', action='store_true')
+    parser.add_argument('--import', help='Import definitions from a local JSON (excludes --export-*)', action='store_true')
+    parser.add_argument('--delete-all-odb-first', help='Deletes all existing objects before new ones are created', action='store_true')
     parser.add_argument('-f', help='Force replacing objects already existing in ODB', action='store_true')
-    parser.add_argument('--dry-run', help="Don't really do anything, only show what will be done. Can be used with -i.", action='store_true')
     parser.add_argument('--input', help="Path to an input JSON document")
     parser.add_argument('--cols_width', help='A list of columns width to use for the table output, default: {}'.format(DEFAULT_COLS_WIDTH))
+    parser.add_argument('--path', help='Path to a running Zato server')
     
-    parser.add_argument('path', help='Path to a running Zato server')
     add_opts(parser, EnMasse.opts)
 
     args = parser.parse_args()
