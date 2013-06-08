@@ -557,23 +557,26 @@ class EnMasse(ManageCommand):
     
 # ##############################################################################
 
-    def find_missing_defs(self, json):
+    def find_missing_defs(self):
         
-        def get_needed_sec_defs(json):
-            for key in json:
+        def get_needed_sec_defs():
+            for key in self.json:
                 if 'plain-http' in key or 'soap' in key:
-                    for item in json[key]:
-                        #yield item.get('sec-def', None)
-                        #print(item, type(item))
-                        pass
-                        
+                    for item in self.json[key]:
+                        sec_def = item.get('sec-def')
+                        if sec_def:
+                            yield sec_def
+                        else:
+                            TO DO
             return []
         
-        def get_needed_amqp_defs(json):
+        def get_needed_amqp_defs():
             pass
         
-        def get_needed_jms_wmq_defs(json):
+        def get_needed_jms_wmq_defs():
             pass
+        
+        neeeded_sec_defs = list(get_needed_sec_defs())
 
 # ##############################################################################
 
@@ -584,7 +587,7 @@ class EnMasse(ManageCommand):
         self.logger.info('Includes merged in successfully')
         
         # Find any definitions that are missing even after merging
-        missing_defs = self.find_missing_defs(self.json)
+        missing_defs = self.find_missing_defs()
         if missing_defs:
             self.logger.error('Failed to find all definitions needed')        
             return [missing_defs]
