@@ -59,7 +59,7 @@ outconn-zmq
 """
 
 DEFAULT_COLS_WIDTH = '15,100'
-NO_SEC_DEF_NEEDED = 'no-security'
+NO_SEC_DEF_NEEDED = 'zato-no-security'
 
 class _DummyLink(object):
     """ Pip requires URLs to have a .url attribute.
@@ -559,6 +559,9 @@ class EnMasse(ManageCommand):
 
     def find_missing_defs(self):
         errors = []
+        missing_def_keys = set()
+        missing_def_names = {}
+        json_keys = tuple(sorted((self.json)))
         
         def _add_error(item,  key_name, def_, json_key):
             raw = (item, def_)
@@ -570,6 +573,19 @@ class EnMasse(ManageCommand):
                 'sec-def': ('plain-http', 'soap'),
             }
         
+        items_defs = {
+            'channel-amqp':'def-amqp',
+            'channel-jms-wmq':'def-jms-wmq',
+            'channel-plain-http':'def-sec',
+            'channel-soap':'def-sec',
+            'outconn-amqp':'def-amqp',
+            'outconn-jms-wmq':'def-jms-wmq',
+            'outconn-plain-http':'def-sec',
+            'outconn-soap':'def-sec'
+        }
+        
+        _no_sec_needed = ('channel-plain-http', 'channel-soap', 'outconn-plain-http', 'outconn-soap')
+        
         def get_needed_defs():
             
             for json_key, json_items in self.json.items():
@@ -579,15 +595,51 @@ class EnMasse(ManageCommand):
                             for json_item in json_items:
                                 if 'def' in json_key:
                                     continue
-                                
                                 needed_def = json_item.get(def_key)
                                 def_ = json_item.get(def_name)
                                 if not def_:
                                     _add_error(json_item, def_name, def_, json_key)
-                                yield def_
+                                yield ({json_key:def_})
 
         needed_defs = list(get_needed_defs())
-        
+        for info_dict in needed_defs:
+            item_key, def_name = info_dict.items()[0]
+            def_key = items_defs.get(item_key)
+            
+            if not def_key:
+                raw = (info_dict, items_defs)
+                value = "Could not find a def key in {} for item_key '{}'".format(items_defs, item_key)
+                errors.append(Error(raw, value))
+                
+            else:
+                defs = self.json.get(def_key)
+                if not defs:
+                    raw = (def_key, json_keys)
+                    if raw in missing_def_keys:
+                        continue
+                    else:
+                        value = "Could not find '{}' definitions among '{}'".format(def_key, json_keys)
+                        errors.append(Error(raw, value))
+                        missing_def_keys.add(raw)
+                else:
+                    for item in defs:
+                        if item.get('name') == def_name:
+                            break
+                    else:
+                        if def_name == NO_SEC_DEF_NEEDED and item_key in _no_sec_needed:
+                            continue
+
+                        def_names = tuple(sorted([def_.name for def_ in defs]))
+                        raw = (def_name, def_names)
+                        dependants = missing_def_names.setdefault(raw, set())
+                        dependants.add(item_key)
+                        
+        for(missing_def, existing_ones), dependants in missing_def_names.items():
+            dependants = sorted(dependants)
+            raw = (missing_def, existing_ones, dependants)
+            value = "'{}' is needed by '{}' but was not among '{}'".format(missing_def, dependants, existing_ones)
+            errors.append(Error(raw, value))
+            
         if errors:
             return Results([], errors)
 
