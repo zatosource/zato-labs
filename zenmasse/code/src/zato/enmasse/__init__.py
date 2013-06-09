@@ -59,6 +59,7 @@ outconn-zmq
 """
 
 DEFAULT_COLS_WIDTH = '15,100'
+NO_SEC_DEF_NEEDED = 'no-security'
 
 class _DummyLink(object):
     """ Pip requires URLs to have a .url attribute.
@@ -197,11 +198,11 @@ class EnMasse(ManageCommand):
         now = datetime.now().isoformat() # Not in UTC, we want to use user's TZ
         name = 'zato-export-{}.json'.format(now.replace(':', '_').replace('.', '_'))
         
-        f = open(join(self.curdir, name), 'w')
-        f.write(dumps(self.json, indent=1, sort_keys=True))
-        f.close()
+        #f = open(join(self.curdir, name), 'w')
+        #f.write(dumps(self.json, indent=1, sort_keys=True))
+        #f.close()
         
-        self.logger.info('Data exported to {}'.format(f.name))
+        #self.logger.info('Data exported to {}'.format(f.name))
         
 # ##############################################################################
         
@@ -393,7 +394,6 @@ class EnMasse(ManageCommand):
         return unparsable
             
     def json_sanity_check(self):
-        warnings = []
         errors = []
         
         for raw, keys in sorted(self.json_find_include_dups().items()):
@@ -422,7 +422,7 @@ class EnMasse(ManageCommand):
                 include, abs_path, len_keys, suffix, '\n'.join(' - {}'.format(name) for name in keys), exc_pretty)
             errors.append(Error(raw, value))
             
-        return Results(warnings, errors)
+        return Results([], errors)
     
     def merge_includes(self):
         json_with_includes = Bunch()
@@ -558,25 +558,38 @@ class EnMasse(ManageCommand):
 # ##############################################################################
 
     def find_missing_defs(self):
+        errors = []
         
-        def get_needed_sec_defs():
-            for key in self.json:
-                if 'plain-http' in key or 'soap' in key:
-                    for item in self.json[key]:
-                        sec_def = item.get('sec-def')
-                        if sec_def:
-                            yield sec_def
-                        else:
-                            TO DO
-            return []
+        def _add_error(item,  key_name, def_, json_key):
+            raw = (item, def_)
+            value = "{} does not define '{}' ({}) ({})".format(item.toDict(), key_name, def_, json_key)
+            errors.append(Error(raw, value))
+
+        defs_keys = {
+                'def': ('jms-wmq', 'amqp'),
+                'sec-def': ('plain-http', 'soap'),
+            }
         
-        def get_needed_amqp_defs():
-            pass
+        def get_needed_defs():
+            
+            for json_key, json_items in self.json.items():
+                for def_name, def_keys in defs_keys.items():
+                    for def_key in def_keys:
+                        if def_key in json_key:
+                            for json_item in json_items:
+                                if 'def' in json_key:
+                                    continue
+                                
+                                needed_def = json_item.get(def_key)
+                                def_ = json_item.get(def_name)
+                                if not def_:
+                                    _add_error(json_item, def_name, def_, json_key)
+                                yield def_
+
+        needed_defs = list(get_needed_defs())
         
-        def get_needed_jms_wmq_defs():
-            pass
-        
-        neeeded_sec_defs = list(get_needed_sec_defs())
+        if errors:
+            return Results([], errors)
 
 # ##############################################################################
 
