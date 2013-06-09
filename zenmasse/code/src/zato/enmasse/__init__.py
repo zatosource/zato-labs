@@ -39,6 +39,22 @@ from zato.common.crypto import CryptoManager
 from zato.common.odb.model import ConnDefAMQP, ConnDefWMQ, HTTPBasicAuth, \
      HTTPSOAP, SecurityBase, Server, Service, TechnicalAccount, to_json, WSSDefinition
 from zato.common.util import get_config
+from zato.server.service import ForceType
+from zato.server.service.internal.channel.amqp import Create as channel_amqp_Create
+from zato.server.service.internal.channel.jms_wmq import Create as channel_jms_wmq_Create
+from zato.server.service.internal.channel.zmq import Create as channel_zmq_Create
+from zato.server.service.internal.definition.amqp import Create as definition_amqp_Create
+from zato.server.service.internal.definition.jms_wmq import Create as definition_jms_wmq_Create
+from zato.server.service.internal.http_soap import Create as http_soap_Create
+from zato.server.service.internal.outgoing.amqp import Create as outgoing_amqp_Create
+from zato.server.service.internal.outgoing.ftp import Create as outgoing_ftp_Create
+from zato.server.service.internal.outgoing.jms_wmq import Create as outgoing_jms_wmq_Create
+from zato.server.service.internal.outgoing.sql import Create as outgoing_sql_Create
+from zato.server.service.internal.outgoing.zmq import Create as outgoing_zmq_Create
+from zato.server.service.internal.scheduler import Create as scheduler_Create
+from zato.server.service.internal.security.basic_auth import Create as security_basic_auth_Create
+from zato.server.service.internal.security.tech_account import Create as security_tech_account_Create
+from zato.server.service.internal.security.wss import Create as security_wss_Create
 
 """
 channel-amqp
@@ -642,7 +658,99 @@ class EnMasse(ManageCommand):
             
         if errors:
             return Results([], errors)
+        
+# ##############################################################################
 
+    def validate_input(self):
+        errors = []
+        required = {}
+        
+        create_services = {
+            'channel-amqp':channel_amqp_Create,
+            'channel-jms-wmq':channel_jms_wmq_Create,
+            'channel-plain-http':http_soap_Create,
+            'channel-soap':http_soap_Create,
+            'channel-zmq':channel_zmq_Create,
+            'def-amqp':definition_amqp_Create,
+            'def-jms-wmq':definition_jms_wmq_Create,
+            'outconn-amqp':outgoing_amqp_Create,
+            'outconn-ftp':outgoing_ftp_Create,
+            'outconn-jms-wmq':outgoing_jms_wmq_Create,
+            'outconn-plain-http':http_soap_Create,
+            'outconn-soap':http_soap_Create,
+            'outconn-sql':outgoing_sql_Create,
+            'outconn-zmq':outgoing_zmq_Create,
+            'scheduler':scheduler_Create,
+        }
+        
+        def_sec_services = {
+            'basicauth':security_basic_auth_Create,
+            'wss':security_wss_Create,
+            'techacc':security_tech_account_Create,
+        }
+        
+        create_services_keys = sorted(create_services)
+        def_sec_services_keys = sorted(def_sec_services)
+        
+        replace_names = {
+            'def_id': 'def',
+        }
+        
+        skip_names = ('cluster_id',)
+        
+        for key, service in create_services.items():
+            required[key] = set()
+            for name in service.SimpleIO.input_required:
+                if name in skip_names:
+                    continue
+                
+                if isinstance(name, ForceType):
+                    name = name.name
+                    
+                name = replace_names.get(name, name)
+                    
+                required[key].add(name)
+                
+        def _validate(key, item, class_, is_sec):
+            if is_sec:
+                # TODO
+                pass
+            elif 'http' in key or 'soap' in key:
+                # TODO
+                pass
+            else:
+                missing = required[key] ^ set(item)
+                print(key, missing)
+        
+        for key, items in self.json.items():
+            for item in items:
+                if key == 'def-sec':
+                    sec_type = item.get('type')
+                    if not sec_type:
+                        item_dict = item.toDict()
+                        raw = (key, item_dict)
+                        value = "'{}' has no required 'type' key (def-sec) ".format(item_dict)
+                        errors.append(Error(raw, value))
+                    else:
+                        class_ = def_sec_services.get(sec_type)
+                        if not class_:
+                            raw = (sec_type, def_sec_services_keys, item)
+                            value = "Invalid type '{}', must be one of '{}' (def-sec)".format(sec_type, def_sec_services_keys)
+                            errors.append(Error(raw, value))
+                        else:
+                            _validate(key, item, class_, True)
+                else:
+                    class_ = create_services.get(key)
+                    if not class_:
+                        raw = (key, create_services_keys)
+                        value = "Invalid key '{}', must be one of '{}'".format(key, create_services_keys)
+                        errors.append(Error(raw, value))
+                    else:
+                        _validate(key, item, class_, False)
+                            
+        if errors:
+            return Results([], errors)
+        
 # ##############################################################################
 
     def export_local(self):
@@ -651,18 +759,17 @@ class EnMasse(ManageCommand):
         self.merge_includes()
         self.logger.info('Includes merged in successfully')
         
-        # Find any definitions that are missing even after merging
+        # Find any definitions that are missing
         missing_defs = self.find_missing_defs()
         if missing_defs:
             self.logger.error('Failed to find all definitions needed')        
             return [missing_defs]
         
-        # Find channels that require services that don't exist
-        
-        # Find jobs that require services that don't exist
-        
-        # As a sanity check, validate again if every required
-        # input element has been specified.
+        # Validate if every required input element has been specified.
+        invalid_reqs = self.validate_input()
+        if invalid_reqs:
+            self.logger.error('Required elements missing')        
+            return [invalid_reqs]
         
         return []
     
@@ -696,6 +803,16 @@ class EnMasse(ManageCommand):
         # Merge local JSON with what was pulled from ODB
         self.merge_odb_json()
         '''
+        
+    def import_(self):
+        """
+                
+        # Find channels and jobs that require services that don't exist
+        missing_defs = self.find_missing_defs()
+        if missing_defs:
+            self.logger.error('Failed to find all definitions needed')        
+            return [missing_defs]
+            """
         
 # ##############################################################################
 
