@@ -698,29 +698,54 @@ class EnMasse(ManageCommand):
         
         skip_names = ('cluster_id',)
         
-        for key, service in create_services.items():
+        def _needs_password(key):
+            return 'sql' in key
+        
+        for key, service in chain(create_services.items(), def_sec_services.items()):
             required[key] = set()
             for name in service.SimpleIO.input_required:
                 if name in skip_names:
                     continue
-                
                 if isinstance(name, ForceType):
                     name = name.name
-                    
                 name = replace_names.get(name, name)
-                    
                 required[key].add(name)
                 
         def _validate(key, item, class_, is_sec):
-            if is_sec:
-                # TODO
-                pass
-            elif 'http' in key or 'soap' in key:
-                # TODO
-                pass
+            name = item.get('name')
+            item_dict = item.toDict()
+            missing = None
+            required_lookup_key = None
+            
+            if not name:
+                raw = (key, item_dict)
+                value = "No 'name' key found in item '{}' ({})".format(item_dict, key)
+                errors.append(Error(raw, value))
             else:
-                missing = required[key] ^ set(item)
-                print(key, missing)
+                if is_sec:
+                    # We know we have one of correct types already so we can
+                    # just look up required attributes.
+                    required_keys = required[item.get('type')]
+                else:
+                    required_keys = required[key]
+                    
+                if _needs_password(key):
+                    required_keys.add('password')
+                    
+                missing = sorted(required_keys - set(item))
+                
+                if missing:
+                    missing_value = "key '{}'".format(missing[0]) if len(missing) == 1 else "keys '{}'".format(missing)
+                    raw = (key, name, item_dict, required_keys, missing)
+                    value = "Missing {} in '{}', the rest is '{}' ({})".format(missing_value, name, item_dict, key)
+                    errors.append(Error(raw, value))
+                    
+                # OK, the keys are there, but do they all have non-None values?
+                else:
+                    for req_key in required_keys:
+                        if item.get(req_key) is None: # 0 or '' can be correct values
+                            raw = (req_key, required, item_dict, key)
+                            value = "Key '{}' must not be None in '{}' ({})".format(req_key, item_dict, key)
         
         for key, items in self.json.items():
             for item in items:

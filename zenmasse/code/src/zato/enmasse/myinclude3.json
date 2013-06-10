@@ -1,1 +1,3 @@
-{"name": "myjmswmq3", "host":"localhost3", "port":31415}
+{"name": "myjmswmq3", "host":"localhost3", "port":31415, "cache_open_receive_queues":true,
+ "cache_open_send_queues":true, "channel": "SVRCONN.1", "max_chars_printed":500,
+ "needs_mcd":true, "queue_manager":"QM01", "ssl":false, "use_shared_connections":true}

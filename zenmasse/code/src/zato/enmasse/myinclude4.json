@@ -1,1 +1,1 @@
-{"name": "mychannel-zmq3", "host": "channel-zmq3.example.com"}
+{"name": "mychannel-zmq3", "address": "tcp://channel-zmq3.example.com", "is_active":true, "service":"service-zmq1", "socket_type":"PULL"}

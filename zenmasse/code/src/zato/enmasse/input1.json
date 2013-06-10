@@ -1,93 +1,112 @@
 {
    "def-sec": [
-       {"type": "basicauth", "name":"mybasicauth", "realm":"myrealm", "password":"mypassword1"},
-       {"type": "wss", "name":"mywss", "password":"mypassword2"},
-       {"type": "techacc", "name":"mytechacc", "password":"mypassword3"}
+       {"type": "basicauth", "name":"mybasicauth", "realm":"myrealm", "password":"mypassword1", "is_active":true, "username":"mybasicauthuser"},
+       {"type": "wss", "name":"mywss", "password":"mypassword2", "is_active":true, "nonce_freshness_time":8000, "password_type":"clear_text",
+        "reject_empty_nonce_creat":true, "reject_expiry_limit":2800, "reject_stale_tokens":true, "username":"myuser"},
+       {"type": "techacc", "name":"mytechacc", "password":"mypassword3", "is_active":true}
    ],
    
    "def-amqp": [
-       {"name": "myamqp1", "host":"localhost", "port":5672, "username":"user1", "password":"password1"},
-       {"name": "myamqp2", "host":"localhost", "port":5673, "username":"user2", "password":"password2"},
-       "file://./myinclude1.json",
+       {"name": "myamqp1", "host":"localhost", "port":5672, "username":"user1", "password":"password1",
+        "frame_max":190290, "heartbeat":30, "vhost":"/zato1"},
+       {"name": "myamqp2", "host":"localhost", "port":25672, "username":"user2", "password":"password2",
+        "frame_max":290290, "heartbeat":230, "vhost":"/zato2"},
        "file://./myinclude2.json"
    ],
    
    "def-jms-wmq": [
-       {"name": "myjmswmq", "host":"localhost", "port":1414},
-       {"name": "myjmswmq2", "host":"localhost2", "port":1415},
+       {"name": "myjmswmq", "host":"localhost3", "port":31415, "cache_open_receive_queues":true,
+        "cache_open_send_queues":true, "channel": "SVRCONN.1", "max_chars_printed":500,
+        "needs_mcd":true, "queue_manager":"QM01", "ssl":false, "use_shared_connections":true},
+        
+       {"name": "myjmswmq2", "host":"localhost3", "port":31415, "cache_open_receive_queues":true,
+        "cache_open_send_queues":true, "channel": "SVRCONN.1", "max_chars_printed":500,
+        "needs_mcd":true, "queue_manager":"QM01", "ssl":false, "use_shared_connections":true},
+        
        "file://./myinclude3.json"
    ],
    
    "channel-amqp": [
-       {"name": "channel-amqp1", "def": "myamqp1"},
-       {"name": "channel-amqp2", "def": "myamqp2"}
+       {"name": "channel-amqp1", "def": "myamqp1", "consumer_tag_prefix":"myconsumer", "is_active":true,
+        "queue":"MYQUEUE", "service":"myservice"},
+       {"name": "channel-amqp2", "def": "myamqp1", "consumer_tag_prefix":"myconsumer", "is_active":true,
+        "queue":"MYQUEUE", "service":"myservice"}
    ],
    
    "channel-jms-wmq": [
-       {"name": "channel-jms-wmq1", "def": "myjms-wmq1"},
-       {"name": "channel-jms-wmq2", "def": "myjms-wmq2"}
+       {"name": "channel-jms-wmq1", "def": "myjmswmq2", "is_active":true, "queue":"Q1", "service":"myservice1"},
+       {"name": "channel-jms-wmq2", "def": "myjmswmq3", "is_active":true, "queue":"Q2", "service":"myservice2"}
    ],
    
    "channel-plain-http": [
-       {"name": "channel-myhttp1", "sec-def": "mybasicauth", "host":"test-channel-11.example.com"},
-       {"name": "channel-myhttp2", "sec-def": "mywss", "host":"test-channel-12.example.com"},
-       {"name": "channel-myhttp3", "sec-def": "mytechacc", "host":"test-channel-13.example.com"}
-       
+       {"name": "channel-myhttp2", "sec-def": "mywss", "host":"test-channel-12.example.com", "connection":"channel", "is_active":true,
+        "is_internal":false, "transport":"plain-http", "url_path":"/path2"},
+       {"name": "channel-myhttp3", "sec-def": "mytechacc", "host":"test-channel-13.example.com", "connection":"channel", "is_active":true,
+        "is_internal":false, "transport":"plain-http", "url_path":"/path3"}
    ],
    
    "channel-soap": [
-       {"name": "channel-soap1", "sec-def": "mybasicauth", "host":"test-channel-11.example.com"},
-       {"name": "channel-soap2", "sec-def": "mywss", "host":"test-channel-12.example.com"},
-       {"name": "zato.ping.soap.wss.clear_text", "transport": "soap", "connection":"channel", "sec-def": "mytechacc", "host":"test-channel-13.example.com"}
+       {"name": "channel-soap1", "sec-def": "zato-no-security", "host":"test-channel-11.example.com", "is_active":true,
+        "is_internal":false, "url_path":"/path1", "connection":"channel", "transport":"soap"},
+       {"name": "channel-soap2", "sec-def": "mytechacc", "host":"test-channel-11.example.com", "is_active":true,
+        "is_internal":false, "url_path":"/path1", "connection":"channel", "transport":"soap"}
    ],
    
    "channel-zmq": [
-       {"name": "mychannel-zmq1", "host": "channel-zmq1.example.com"},
-       {"name": "mychannel-zmq2", "host": "channel-zmq2.example.com"},
+       {"name": "mychannel-zmq1", "address": "tcp://channel-zmq1.example.com", "is_active":true, "service":"service-zmq1", "socket_type":"PULL"},
+       {"name": "mychannel-zmq2", "address": "tcp://channel-zmq2.example.com", "is_active":true, "service":"service-zmq2", "socket_type":"SUB"},
        "file://./myinclude4.json"
    ],
    
    "outconn-amqp": [
-       {"name": "outconn-amqp1", "def": "myamqp"},
-       {"name": "outconn-amqp2", "def": "myamqp"}
+       {"name": "outconn-amqp1", "def": "myamqp1", "delivery_mode":1, "is_active":true, "priority":5},
+       {"name": "outconn-amqp2", "def": "myamqp2", "delivery_mode":1, "is_active":true, "priority":5}
    ],
    
    "outconn-ftp": [
-       {"name": "ftp1", "username": "myftp1"},
-       {"name": "ftp2", "username": "myftp2"}
+       {"name": "ftp1", "username": "myftp1", "dircache":false, "host":"ftp1.example.com", "is_active":true, "port":10121},
+       {"name": "ftp2", "username": "myftp2", "dircache":true, "host":"ftp2.example.com", "is_active":true, "port":20121}
    ],
    
    "outconn-jms-wmq": [
-       {"name": "jmswmq1", "def": "myjmswmq"},
-       {"name": "jmswmq2", "def": "myjmswmq"},
+       {"name": "jmswmq1", "def": "myjmswmq", "delivery_mode":1, "is_active":true, "priority":5},
+       {"name": "jmswmq2", "def": "myjmswmq", "delivery_mode":1, "is_active":true, "priority":5},
        "file://./myinclude5.json"
    ],
    
    "outconn-plain-http": [
-       {"name": "myhttp1", "sec-def": "mybasicauth", "host":"test11.example.com"},
-       {"name": "myhttp2", "sec-def": "mywss", "host":"test12.example.com"},
-       {"name": "myhttp3", "sec-def": "mytechacc", "host":"test13.example.com"}
+       {"name": "myhttp1", "sec-def": "mybasicauth", "host":"test11.example.com", "connection":"outgoing", "is_active":true,
+        "is_internal":false, "transport":"plain-http", "url_path":"/out/1"},
+       {"name": "myhttp2", "sec-def": "mywss", "host":"test22.example.com", "connection":"outgoing", "is_active":true,
+        "is_internal":false, "transport":"plain-http", "url_path":"/out/2"}
    ],
    
    "outconn-soap": [
-       {"name": "mysoap1", "sec-def": "mybasicauth", "host":"test1.example.com"},
-       {"name": "mysoap2", "sec-def": "mywss", "host":"test2.example.com"},
-       {"name": "mysoap3", "sec-def": "mytechacc", "host":"test3.example.com"}
+       {"name": "mysoap1", "sec-def": "mybasicauth", "host":"test1.example.com", "connection":"outgoing", "is_active":true,
+        "is_internal":false, "transport":"soap", "url_path":"/my/soap/service/1"},
+       {"name": "mysoap2", "sec-def": "mytechacc", "host":"test2.example.com", "connection":"outgoing", "is_active":true,
+        "is_internal":false, "transport":"soap", "url_path":"/my/soap/service/2"}
    ],
    
    "outconn-sql": [
-       {"name": "mysql1", "username": "mysql1", "password":"mypassword1", "engine":"postgresql"},
-       {"name": "mysql2", "username": "mysql2", "password":"mypassword2", "engine":"oracle"},
+       {"name": "mysql1", "username": "mysql2", "password":null, "engine":"postgresql", 
+        "db_name": "mydb", "host": "localhost", "is_active": true, 
+        "pool_size":2, "port": 1999},
+        
+       {"name": "mysql2", "username": "mysql2", "password":null, "engine":"postgresql", 
+        "db_name": "mydb", "host": "localhost", "is_active": true, 
+        "pool_size":2, "port": 1999},
+        
        "file://./myinclude6.json"
    ],
    
    "outconn-zmq": [
-       {"name": "myzmq1", "host": "zmq1.example.com"},
-       {"name": "myzmq2", "host": "zmq2.example.com"}
+       {"name": "myzmq1", "address": "tcp://zmq1.example.com", "is_active":true, "socket_type":"PUSH"},
+       {"name": "myzmq2", "address": "tcp://zmq2.example.com", "is_active":true, "socket_type":"PUSH"}
    ],
    
    "scheduler": [
-       {"name": "myjob1"},
-       {"name": "myjob2"}
+       {"name": "myjob1", "is_active":true, "job_type":"interval-based", "service":"zzz", "start_date":"2013-10-21T09:37:45"},
+       {"name": "myjob2", "is_active":true, "job_type":"one-time", "service":"zzz", "start_date":"2013-10-21T09:37:46"}
    ]
 }

@@ -1,1 +1,2 @@
-{"name": "myamqp3", "host":"localhost3", "port":35673, "username":"user3", "password":"password3"}
+       {"name": "myamqp3", "host":"localhost", "port":35672, "username":"user3", "password":"password3",
+        "frame_max":390290, "heartbeat":330, "vhost":"/zato3"}

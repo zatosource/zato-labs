@@ -1,1 +1,3 @@
-{"name": "mysql2", "username": "mysql2", "password":"mypassword2", "engine":"postgresql"}
+{"name": "mysql3", "username": "mysql2", "password":null, "engine":"postgresql", 
+  "db_name": "mydb", "host": "localhost", "is_active": true, 
+  "pool_size":2, "port": 1999}
