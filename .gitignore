@@ -9,6 +9,7 @@ code/include/*
 code/lib/*
 code/local/*
 code/parts/*
+zenmasse/code/src/zato/enmasse/zato-export-*
 *.pyc
 *.pyo
 *.egg-info*
