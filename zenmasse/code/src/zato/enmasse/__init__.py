@@ -56,24 +56,6 @@ from zato.server.service.internal.security.basic_auth import Create as security_
 from zato.server.service.internal.security.tech_account import Create as security_tech_account_Create
 from zato.server.service.internal.security.wss import Create as security_wss_Create
 
-"""
-channel-amqp
-channel-jms-wmq
-channel-plain-http
-channel-soap
-channel-zmq
-def-amqp
-def-jms-wmq
-def-sec
-outconn-amqp
-outconn-ftp
-outconn-jms-wmq
-outconn-plain-http
-outconn-soap
-outconn-sql
-outconn-zmq
-"""
-
 DEFAULT_COLS_WIDTH = '15,100'
 NO_SEC_DEF_NEEDED = 'zato-no-security'
 
@@ -128,7 +110,7 @@ class EnMasse(ManageCommand):
         self.curdir = self.args.curdir
         self.force_override = self.args.f
         self.has_import = getattr(args, 'import')
-        self.json = None
+        self.json = {}
         
         self.odb_objects = Bunch()
         self.objects = Bunch()
@@ -146,6 +128,17 @@ class EnMasse(ManageCommand):
         #    4b) bail out if local JSON overrides any from ODB (no -f)
         #    4c) override whatever is found in ODB with values from JSON (-f)
         #
+        
+        if args.export_odb:
+
+            # Checks if connections to ODB/Redis are configured properly
+            cc = CheckConfig(self.args)
+            cc.show_output = False
+            cc.execute(self.args)
+    
+            # Get client and issue a sanity check as quickly as possible
+            self.set_client()
+            self.client.invoke('zato.ping')
         
         # Imports and export are mutually excluding
         if self.has_import and (args.export_local or args.export_odb):
@@ -165,16 +158,18 @@ class EnMasse(ManageCommand):
             
         # 3) a/b
         if args.export_local and args.export_odb:
-            self.export_local_odb()
+            self.report_warnings_errors(self.export_local_odb())
+            self.save_json()
             
         # 1)
         elif args.export_local:
-            if self.report_warnings_errors(self.export_local()):
-                self.save_json()
+            self.report_warnings_errors(self.export_local())
+            self.save_json()
             
         # 2)
         elif args.export_odb:
-            self.export_odb()
+            self.report_warnings_errors(self.export_odb())
+            self.save_json()
            
         # 4) a/b/c
         elif self.has_import:
@@ -184,41 +179,17 @@ class EnMasse(ManageCommand):
             self.logger.error('At least one of --export-local, --export-odb or --import is required, stopping now')
             sys.exit(self.SYS_ERROR.NO_OPTIONS)
         
-        '''
-        # Checks if connections to ODB/Redis are configured properly
-        cc = CheckConfig(self.args)
-        cc.show_output = False
-        cc.execute(self.args)
-
-        # Get client and issue a sanity check as quickly as possible
-        self.set_client()
-        self.client.invoke('zato.ping')
-        
-        if self.args.input:
-            input_path = self.ensure_input_exists()
-            self.json = bunchify(loads(open(input_path).read()))
-            
-            self.grab_odb_objects()
-            
-            warn_err, warn_no, error_no = self.run_local_json()
-            if warn_err:
-                self.report_warnings_errors(warn_err, warn_no, error_no)
-                
-        self.client.session.close()
-        self.logger.info('All checks OK')
-        '''
-
 # ##############################################################################
 
     def save_json(self):
         now = datetime.now().isoformat() # Not in UTC, we want to use user's TZ
         name = 'zato-export-{}.json'.format(now.replace(':', '_').replace('.', '_'))
         
-        #f = open(join(self.curdir, name), 'w')
-        #f.write(dumps(self.json, indent=1, sort_keys=True))
-        #f.close()
+        f = open(join(self.curdir, name), 'w')
+        f.write(dumps(self.json, indent=1, sort_keys=True))
+        f.close()
         
-        #self.logger.info('Data exported to {}'.format(f.name))
+        self.logger.info('Data exported to {}'.format(f.name))
         
 # ##############################################################################
         
@@ -453,6 +424,7 @@ class EnMasse(ManageCommand):
                     values_with_includes.append(value)
                     
         self.json = json_with_includes
+        self.logger.info('Includes merged in successfully')
         
     def merge_odb_json(self):
         merged = deepcopy(self.odb_objects)
@@ -461,12 +433,11 @@ class EnMasse(ManageCommand):
             if 'http' in json_key or 'soap' in json_key:
                 odb_key = 'http_soap'
             else:
-                odb_key = json_key.replace('-', '_')
+                odb_key = json_key
             for json_elem in json_elems:
                 if 'http' in json_key or 'soap' in json_key:
-                    connection, transport = json_key.split('-', 1)
+                    connection, transport = json_key.split('_', 1)
                     connection = 'outgoing' if connection == 'outconn' else connection
-                    transport = transport.replace('-', '_')
                     
                     for odb_elem in merged.http_soap:
                         if odb_elem.get('transport') == transport and odb_elem.get('connection') == connection:
@@ -482,7 +453,28 @@ class EnMasse(ManageCommand):
     
 # ##############################################################################
 
-    def grab_odb_objects(self):
+    def get_odb_objects(self):
+        
+        def _update_service_name(item):
+            item.service = self.client.odb_session.query(Service.name).\
+                filter(Service.id == item.service_id).one()[0]
+        
+        def fix_up_odb_object(key, item):
+            if key == 'http_soap':
+                if item.connection == 'channel':
+                    _update_service_name(item)
+                if item.security_id:
+                    item.sec_def = self.client.odb_session.query(SecurityBase.name).\
+                        filter(SecurityBase.id == item.security_id).one()[0]
+                else:
+                    item.sec_def = NO_SEC_DEF_NEEDED
+            elif key == 'scheduler':
+                _update_service_name(item)
+            elif 'sec_type' in item:
+                item['type'] = item['sec_type']
+                del item['sec_type']
+                
+            return item
         
         def get_fields(model):
             return Bunch(loads(to_json(item))[0]['fields'])
@@ -502,14 +494,16 @@ class EnMasse(ManageCommand):
         
         for query in(basic_auth, tech_acc, wss):
             for item in query.all():
-                self.odb_objects.def_sec.append(get_fields(item))
+                if not 'zato' in item.name.lower():
+                    self.odb_objects.def_sec.append(get_fields(item))
                 
         for item in self.client.odb_session.query(ConnDefAMQP).\
             filter(ConnDefAMQP.cluster_id == self.client.cluster_id).all():
             self.odb_objects.def_amqp.append(get_fields(item))
             
         for item in self.client.odb_session.query(HTTPSOAP).\
-            filter(HTTPSOAP.cluster_id == self.client.cluster_id).all():
+            filter(HTTPSOAP.cluster_id == self.client.cluster_id).\
+            filter(HTTPSOAP.is_internal == False).all():
             self.odb_objects.http_soap.append(get_fields(item))
 
         service_key = {
@@ -532,8 +526,13 @@ class EnMasse(ManageCommand):
             response = self.client.invoke(service, {'cluster_id':self.client.cluster_id})
             if response.ok:
                 for item in response.data:
-                    self.odb_objects[key].append(Bunch(item))
-    
+                    if not 'zato' in item['name'].lower():
+                        self.odb_objects[key].append(Bunch(item))
+                    
+        for key, items in self.odb_objects.items():
+            for item in items:
+                fix_up_odb_object(key, item)
+                    
 # ##############################################################################
     
     def find_overrides(self):
@@ -581,23 +580,24 @@ class EnMasse(ManageCommand):
         
         def _add_error(item,  key_name, def_, json_key):
             raw = (item, def_)
-            value = "{} does not define '{}' ({}) ({})".format(item.toDict(), key_name, def_, json_key)
+            value = "{} does not define '{}' (value is {}) ({})".format(item.toDict(), key_name, def_, json_key)
             errors.append(Error(raw, value))
 
         defs_keys = {
                 'def': ('jms-wmq', 'amqp'),
-                'sec-def': ('plain-http', 'soap'),
+                'sec_def': ('plain-http', 'soap'),
             }
         
         items_defs = {
-            'channel-amqp':'def-amqp',
-            'channel-jms-wmq':'def-jms-wmq',
-            'channel-plain-http':'def-sec',
-            'channel-soap':'def-sec',
-            'outconn-amqp':'def-amqp',
-            'outconn-jms-wmq':'def-jms-wmq',
-            'outconn-plain-http':'def-sec',
-            'outconn-soap':'def-sec'
+            'channel_amqp':'def_amqp',
+            'channel_jms_wmq':'def_jms_wmq',
+            'channel_plain_http':'def_sec',
+            'channel_soap':'def_sec',
+            'outconn_amqp':'def_amqp',
+            'outconn_jms_wmq':'def_jms_wmq',
+            'outconn_plain_http':'def_sec',
+            'outconn_soap':'def_sec',
+            'http_soap':'def_sec'
         }
         
         _no_sec_needed = ('channel-plain-http', 'channel-soap', 'outconn-plain-http', 'outconn-soap')
@@ -651,6 +651,8 @@ class EnMasse(ManageCommand):
                         dependants.add(item_key)
                         
         for(missing_def, existing_ones), dependants in missing_def_names.items():
+            if missing_def == NO_SEC_DEF_NEEDED:
+                continue
             dependants = sorted(dependants)
             raw = (missing_def, existing_ones, dependants)
             value = "'{}' is needed by '{}' but was not among '{}'".format(missing_def, dependants, existing_ones)
@@ -666,27 +668,28 @@ class EnMasse(ManageCommand):
         required = {}
         
         create_services = {
-            'channel-amqp':channel_amqp_Create,
-            'channel-jms-wmq':channel_jms_wmq_Create,
-            'channel-plain-http':http_soap_Create,
-            'channel-soap':http_soap_Create,
-            'channel-zmq':channel_zmq_Create,
-            'def-amqp':definition_amqp_Create,
-            'def-jms-wmq':definition_jms_wmq_Create,
-            'outconn-amqp':outgoing_amqp_Create,
-            'outconn-ftp':outgoing_ftp_Create,
-            'outconn-jms-wmq':outgoing_jms_wmq_Create,
-            'outconn-plain-http':http_soap_Create,
-            'outconn-soap':http_soap_Create,
-            'outconn-sql':outgoing_sql_Create,
-            'outconn-zmq':outgoing_zmq_Create,
+            'channel_amqp':channel_amqp_Create,
+            'channel_jms_wmq':channel_jms_wmq_Create,
+            'channel_plain_http':http_soap_Create,
+            'channel_soap':http_soap_Create,
+            'channel_zmq':channel_zmq_Create,
+            'def_amqp':definition_amqp_Create,
+            'def_jms_wmq':definition_jms_wmq_Create,
+            'outconn_amqp':outgoing_amqp_Create,
+            'outconn_ftp':outgoing_ftp_Create,
+            'outconn_jms_wmq':outgoing_jms_wmq_Create,
+            'outconn_plain_http':http_soap_Create,
+            'outconn_soap':http_soap_Create,
+            'outconn_sql':outgoing_sql_Create,
+            'outconn_zmq':outgoing_zmq_Create,
             'scheduler':scheduler_Create,
+            'http_soap':http_soap_Create,
         }
         
         def_sec_services = {
-            'basicauth':security_basic_auth_Create,
+            'basic_auth':security_basic_auth_Create,
             'wss':security_wss_Create,
-            'techacc':security_tech_account_Create,
+            'tech_acc':security_tech_account_Create,
         }
         
         create_services_keys = sorted(create_services)
@@ -749,18 +752,18 @@ class EnMasse(ManageCommand):
         
         for key, items in self.json.items():
             for item in items:
-                if key == 'def-sec':
+                if key == 'def_sec':
                     sec_type = item.get('type')
                     if not sec_type:
                         item_dict = item.toDict()
                         raw = (key, item_dict)
-                        value = "'{}' has no required 'type' key (def-sec) ".format(item_dict)
+                        value = "'{}' has no required 'type' key (def_sec) ".format(item_dict)
                         errors.append(Error(raw, value))
                     else:
                         class_ = def_sec_services.get(sec_type)
                         if not class_:
                             raw = (sec_type, def_sec_services_keys, item)
-                            value = "Invalid type '{}', must be one of '{}' (def-sec)".format(sec_type, def_sec_services_keys)
+                            value = "Invalid type '{}', must be one of '{}' (def_sec)".format(sec_type, def_sec_services_keys)
                             errors.append(Error(raw, value))
                         else:
                             _validate(key, item, class_, True)
@@ -778,11 +781,7 @@ class EnMasse(ManageCommand):
         
 # ##############################################################################
 
-    def export_local(self):
-        
-        # Merge all includes into local JSON
-        self.merge_includes()
-        self.logger.info('Includes merged in successfully')
+    def export(self):
         
         # Find any definitions that are missing
         missing_defs = self.find_missing_defs()
@@ -797,47 +796,29 @@ class EnMasse(ManageCommand):
             return [invalid_reqs]
         
         return []
+
+    def export_local(self, needs_includes=True):
+        if needs_includes:
+            self.merge_includes()
+        return self.export()
     
-    def export_local_odb(self):
-        # Merge all includes into local JSON
-        #self.merge_includes()
-        #self.logger.info('Includes merged in successfully')        
-
-        '''        
-        # Check if local JSON wants to overrite anything already defined in ODB.
-        # Fail if it does and -f (force) is not set.
+    def export_local_odb(self, needs_local=True):
+        if needs_local:
+            self.merge_includes()
+        self.get_odb_objects()
+        self.logger.info('ODB objects read')
         
-
-        overrides_results = self.find_overrides()
-        if not overrides_results.ok:
-            
-            if overrides_results.errors:
-                return [overrides_results]
-            
-            elif overrides_results.warnings:
-                self.logger.info('Found overrides')
-                
-                if not self.force_override:
-                    self.logger.error('No -f flag set and overrides found, stopping now')
-                    overrides_results.errors = overrides_results.errors + overrides_results.warnings
-                    overrides_results.warnings[:] = []
-                    return [overrides_results]
-                else:
-                    self.logger.info('-f flag set, will override ODB objects')
-        
-        # Merge local JSON with what was pulled from ODB
         self.merge_odb_json()
-        '''
+        self.logger.info('ODB objects merged in')
+        
+        return self.export_local(False)
+    
+    def export_odb(self):
+        return self.export_local_odb(False)
         
     def import_(self):
-        """
-                
         # Find channels and jobs that require services that don't exist
-        missing_defs = self.find_missing_defs()
-        if missing_defs:
-            self.logger.error('Failed to find all definitions needed')        
-            return [missing_defs]
-            """
+        pass
         
 # ##############################################################################
 
@@ -845,13 +826,11 @@ def main():
     parser = argparse.ArgumentParser(add_help=True, description=EnMasse.__doc__)
     parser.add_argument('--store-log', help='Whether to store an execution log', action='store_true')
     parser.add_argument('--verbose', help='Show verbose output', action='store_true')
-    parser.add_argument('--store-config', 
-        help='Whether to store config options in a file for a later use', action='store_true')
+    parser.add_argument('--store-config', help='Whether to store config options in a file for a later use', action='store_true')
     parser.add_argument('--export-local', help='Export local JSON definitions into one file (can be used with --export-odb)', action='store_true')
     parser.add_argument('--export-odb', help='Export ODB definitions into one file (can be used with --export-local)', action='store_true')
     parser.add_argument('--import', help='Import definitions from a local JSON (excludes --export-*)', action='store_true')
-    parser.add_argument('--delete-all-odb-first', help='Deletes all existing objects before new ones are created', action='store_true')
-    parser.add_argument('-f', help='Force replacing objects already existing in ODB', action='store_true')
+    parser.add_argument('-f', help='Force replacing objects already existing in ODB or JSON', action='store_true')
     parser.add_argument('--input', help="Path to an input JSON document")
     parser.add_argument('--cols_width', help='A list of columns width to use for the table output, default: {}'.format(DEFAULT_COLS_WIDTH))
     parser.add_argument('--path', help='Path to a running Zato server')
@@ -864,4 +843,5 @@ def main():
     EnMasse(args).run(args)
 
 if __name__ == '__main__':
+    print('TODO document that security def names must be unique')
     main()
