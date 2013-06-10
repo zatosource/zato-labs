@@ -59,21 +59,45 @@ from zato.server.service.internal.security.wss import Create as security_wss_Cre
 DEFAULT_COLS_WIDTH = '15,100'
 NO_SEC_DEF_NEEDED = 'zato-no-security'
 
+class Code(object):
+    def __init__(self, symbol, desc):
+        self.symbol = symbol
+        self.desc = desc
+        
+    def __repr__(self):
+        return "<{} at {} symbol:'{}' desc:'{}'>".format(
+            self.__class__.__name__, hex(id(self)), self.symbol, self.desc)
+
+WARNING_ALREADY_EXISTS_IN_ODB = Code('W01', 'already exists in odb')
+WARNING_MISSING_DEF = Code('E07', 'missing def')
+WARNING_NO_DEF_FOUND = Code('W02', 'no def found')
+ERROR_ITEM_INCLUDED_MULTIPLE_TIMES = Code('E01', 'item incl multiple')
+ERROR_ITEM_INCLUDED_BUT_MISSING = Code('E02', 'incl missing')
+ERROR_INCLUDE_COULD_NOT_BE_PARSED = Code('E03', 'incl parsing error')
+ERROR_NAME_MISSING = Code('E04', 'name missing')
+ERROR_DEF_KEY_NOT_DEFINED = Code('E05', 'def key not defined')
+ERROR_NO_DEF_KEY_IN_LOOKUP_TABLE = Code('E06', 'no def key in lookup')
+ERROR_KEYS_MISSING = Code('E08', 'missing keys')
+ERROR_INVALID_SEC_DEF_TYPE = Code('E09', 'invalid sec def type')
+ERROR_INVALID_KEY = Code('E10', 'invalid key')
+
 class _DummyLink(object):
     """ Pip requires URLs to have a .url attribute.
     """
     def __init__(self, url):
         self.url = url
 
-class Warning(object):
-    def __init__(self, value_raw, value):
+class _Incorrect(object):
+    def __init__(self, value_raw, value, code):
         self.value_raw = value_raw
         self.value = value
+        self.code = code
         
-class Error(object):
-    def __init__(self, value_raw, value):
-        self.value_raw = value_raw
-        self.value = value
+class Warning(_Incorrect):
+    pass
+        
+class Error(_Incorrect):
+    pass
 
 class Results(object):
     def __init__(self, warnings, errors):
@@ -110,6 +134,7 @@ class EnMasse(ManageCommand):
         self.curdir = self.args.curdir
         self.force_override = self.args.f
         self.has_import = getattr(args, 'import')
+        self.ignore_missing_defs = args.ignore_missing_defs
         self.json = {}
         
         self.odb_objects = Bunch()
@@ -268,11 +293,11 @@ class EnMasse(ManageCommand):
         for item in items:
 
             for warning in item.warnings:
-                warn_err['warn{:04}'.format(warn_idx)] = warning.value
+                warn_err['warn{:04}/{} {}'.format(warn_idx, warning.code.symbol, warning.code.desc)] = warning.value
                 warn_idx += 1
                 
             for error in item.errors:
-                warn_err['error{:04}'.format(error_idx)] = error.value
+                warn_err['err{:04}/{} {}'.format(error_idx, error.code.symbol, error.code.desc)] = error.value
                 error_idx += 1
                 
         warn_no = warn_idx-1
@@ -388,7 +413,7 @@ class EnMasse(ManageCommand):
             keys = sorted(set(keys))
             value = '{} included multiple times ({}) \n{}'.format(
                 raw, len_keys, '\n'.join(' - {}'.format(name) for name in keys))
-            errors.append(Error(raw, value))
+            errors.append(Error(raw, value, ERROR_ITEM_INCLUDED_MULTIPLE_TIMES))
             
         missing_items = sorted(self.json_find_missing_includes().items())
         for raw, keys in missing_items:
@@ -397,7 +422,7 @@ class EnMasse(ManageCommand):
             keys = sorted(set(keys))
             value = '{} ({}) missing but needed in multiple definitions ({}) \n{}'.format(
                 missing, missing_abs, len_keys, '\n'.join(' - {}'.format(name) for name in keys))
-            errors.append(Error(raw, value))
+            errors.append(Error(raw, value, ERROR_ITEM_INCLUDED_BUT_MISSING))
             
         unparsable = self.json_find_unparsable_includes([elem[0][1] for elem in missing_items])
         for raw, keys in unparsable.items():
@@ -407,7 +432,7 @@ class EnMasse(ManageCommand):
             keys = sorted(set(keys))
             value = '{} ({}) could not be parsed as JSON, used in ({}) definition{}\n{} \n{}'.format(
                 include, abs_path, len_keys, suffix, '\n'.join(' - {}'.format(name) for name in keys), exc_pretty)
-            errors.append(Error(raw, value))
+            errors.append(Error(raw, value, ERROR_INCLUDE_COULD_NOT_BE_PARSED))
             
         return Results([], errors)
     
@@ -427,6 +452,7 @@ class EnMasse(ManageCommand):
         self.logger.info('Includes merged in successfully')
         
     def merge_odb_json(self):
+        errors = []
         merged = deepcopy(self.odb_objects)
         
         for json_key, json_elems in self.json.items():
@@ -434,21 +460,31 @@ class EnMasse(ManageCommand):
                 odb_key = 'http_soap'
             else:
                 odb_key = json_key
-            for json_elem in json_elems:
-                if 'http' in json_key or 'soap' in json_key:
-                    connection, transport = json_key.split('_', 1)
-                    connection = 'outgoing' if connection == 'outconn' else connection
-                    
-                    for odb_elem in merged.http_soap:
-                        if odb_elem.get('transport') == transport and odb_elem.get('connection') == connection:
+
+            if odb_key not in merged:
+                sorted_merged = sorted(merged)
+                raw = (json_key, odb_key, sorted_merged)
+                value = "JSON key '{}' not one of '{}'".format(odb_key, sorted_merged)
+                errors.append(Error(raw, value, ERROR_INVALID_KEY))
+            else:
+                for json_elem in json_elems:
+                    if 'http' in json_key or 'soap' in json_key:
+                        connection, transport = json_key.split('_', 1)
+                        connection = 'outgoing' if connection == 'outconn' else connection
+                        
+                        for odb_elem in merged.http_soap:
+                            if odb_elem.get('transport') == transport and odb_elem.get('connection') == connection:
+                                if odb_elem.name == json_elem.name:
+                                    merged.http_soap.remove(odb_elem)
+                    else:
+                        for odb_elem in merged[odb_key]:
                             if odb_elem.name == json_elem.name:
-                                merged.http_soap.remove(odb_elem)
-                else:
-                    for odb_elem in merged[odb_key]:
-                        if odb_elem.name == json_elem.name:
-                            merged[odb_key].remove(odb_elem)
-                merged[odb_key].append(json_elem)
+                                merged[odb_key].remove(odb_elem)
+                    merged[odb_key].append(json_elem)
                     
+        if errors:
+            return Results([], errors)
+        
         self.json = merged
     
 # ##############################################################################
@@ -542,7 +578,7 @@ class EnMasse(ManageCommand):
         def add_warning(key, value_dict, item):
             raw = (key, value_dict)
             msg = '{} already exists in ODB {} ({})'.format(value_dict.toDict(), item.toDict(), key)
-            warnings.append(Warning(raw, msg))
+            warnings.append(Warning(raw, msg, WARNING_ALREADY_EXISTS_IN_ODB))
         
         for key, values in self.json.items():
             for value_dict in values:
@@ -550,7 +586,7 @@ class EnMasse(ManageCommand):
                 if not value_name:
                     raw = (key, value_dict)
                     msg = "{} has no 'name' key ({})".format(value_dict.toDict(), key)
-                    errors.append(Error(raw, msg))
+                    errors.append(Error(raw, msg, ERROR_NAME_MISSING))
 
                 if 'http' in key or 'soap' in key:
                     connection, transport = key.split('-', 1)
@@ -573,6 +609,7 @@ class EnMasse(ManageCommand):
 # ##############################################################################
 
     def find_missing_defs(self):
+        warnings = []
         errors = []
         missing_def_keys = set()
         missing_def_names = {}
@@ -581,7 +618,7 @@ class EnMasse(ManageCommand):
         def _add_error(item,  key_name, def_, json_key):
             raw = (item, def_)
             value = "{} does not define '{}' (value is {}) ({})".format(item.toDict(), key_name, def_, json_key)
-            errors.append(Error(raw, value))
+            errors.append(Error(raw, value, ERROR_DEF_KEY_NOT_DEFINED))
 
         defs_keys = {
                 'def': ('jms-wmq', 'amqp'),
@@ -625,7 +662,7 @@ class EnMasse(ManageCommand):
             if not def_key:
                 raw = (info_dict, items_defs)
                 value = "Could not find a def key in {} for item_key '{}'".format(items_defs, item_key)
-                errors.append(Error(raw, value))
+                errors.append(Error(raw, value, ERROR_NO_DEF_KEY_IN_LOOKUP_TABLE))
                 
             else:
                 defs = self.json.get(def_key)
@@ -635,7 +672,7 @@ class EnMasse(ManageCommand):
                         continue
                     else:
                         value = "Could not find '{}' definitions among '{}'".format(def_key, json_keys)
-                        errors.append(Error(raw, value))
+                        warnings.append(Warning(raw, value, WARNING_NO_DEF_FOUND))
                         missing_def_keys.add(raw)
                 else:
                     for item in defs:
@@ -650,16 +687,17 @@ class EnMasse(ManageCommand):
                         dependants = missing_def_names.setdefault(raw, set())
                         dependants.add(item_key)
                         
-        for(missing_def, existing_ones), dependants in missing_def_names.items():
-            if missing_def == NO_SEC_DEF_NEEDED:
-                continue
-            dependants = sorted(dependants)
-            raw = (missing_def, existing_ones, dependants)
-            value = "'{}' is needed by '{}' but was not among '{}'".format(missing_def, dependants, existing_ones)
-            errors.append(Error(raw, value))
+        if not self.ignore_missing_defs:
+            for(missing_def, existing_ones), dependants in missing_def_names.items():
+                if missing_def == NO_SEC_DEF_NEEDED:
+                    continue
+                dependants = sorted(dependants)
+                raw = (missing_def, existing_ones, dependants)
+                value = "'{}' is needed by '{}' but was not among '{}'".format(missing_def, dependants, existing_ones)
+                warnings.append(Warning(raw, value, WARNING_MISSING_DEF))
             
-        if errors:
-            return Results([], errors)
+        if warnings or errors:
+            return Results(warnings, errors)
         
 # ##############################################################################
 
@@ -723,7 +761,7 @@ class EnMasse(ManageCommand):
             if not name:
                 raw = (key, item_dict)
                 value = "No 'name' key found in item '{}' ({})".format(item_dict, key)
-                errors.append(Error(raw, value))
+                errors.append(Error(raw, value, ERROR_NAME_MISSING))
             else:
                 if is_sec:
                     # We know we have one of correct types already so we can
@@ -741,7 +779,7 @@ class EnMasse(ManageCommand):
                     missing_value = "key '{}'".format(missing[0]) if len(missing) == 1 else "keys '{}'".format(missing)
                     raw = (key, name, item_dict, required_keys, missing)
                     value = "Missing {} in '{}', the rest is '{}' ({})".format(missing_value, name, item_dict, key)
-                    errors.append(Error(raw, value))
+                    errors.append(Error(raw, value, ERROR_KEYS_MISSING))
                     
                 # OK, the keys are there, but do they all have non-None values?
                 else:
@@ -758,13 +796,13 @@ class EnMasse(ManageCommand):
                         item_dict = item.toDict()
                         raw = (key, item_dict)
                         value = "'{}' has no required 'type' key (def_sec) ".format(item_dict)
-                        errors.append(Error(raw, value))
+                        errors.append(Error(raw, value, ERROR_TYPE_MISSING))
                     else:
                         class_ = def_sec_services.get(sec_type)
                         if not class_:
                             raw = (sec_type, def_sec_services_keys, item)
                             value = "Invalid type '{}', must be one of '{}' (def_sec)".format(sec_type, def_sec_services_keys)
-                            errors.append(Error(raw, value))
+                            errors.append(Error(raw, value, ERROR_INVALID_SEC_DEF_TYPE))
                         else:
                             _validate(key, item, class_, True)
                 else:
@@ -772,7 +810,7 @@ class EnMasse(ManageCommand):
                     if not class_:
                         raw = (key, create_services_keys)
                         value = "Invalid key '{}', must be one of '{}'".format(key, create_services_keys)
-                        errors.append(Error(raw, value))
+                        errors.append(Error(raw, value, ERROR_INVALID_KEY))
                     else:
                         _validate(key, item, class_, False)
                             
@@ -808,13 +846,17 @@ class EnMasse(ManageCommand):
         self.get_odb_objects()
         self.logger.info('ODB objects read')
         
-        self.merge_odb_json()
+        errors = self.merge_odb_json()
+        if errors:
+            return [errors]
         self.logger.info('ODB objects merged in')
         
         return self.export_local(False)
     
     def export_odb(self):
         return self.export_local_odb(False)
+
+# ##############################################################################
         
     def import_(self):
         # Find channels and jobs that require services that don't exist
@@ -830,6 +872,7 @@ def main():
     parser.add_argument('--export-local', help='Export local JSON definitions into one file (can be used with --export-odb)', action='store_true')
     parser.add_argument('--export-odb', help='Export ODB definitions into one file (can be used with --export-local)', action='store_true')
     parser.add_argument('--import', help='Import definitions from a local JSON (excludes --export-*)', action='store_true')
+    parser.add_argument('--ignore-missing-defs', help='Import definitions from a local JSON (excludes --export-*)', action='store_true')
     parser.add_argument('-f', help='Force replacing objects already existing in ODB or JSON', action='store_true')
     parser.add_argument('--input', help="Path to an input JSON document")
     parser.add_argument('--cols_width', help='A list of columns width to use for the table output, default: {}'.format(DEFAULT_COLS_WIDTH))
