@@ -68,9 +68,10 @@ class Code(object):
         return "<{} at {} symbol:'{}' desc:'{}'>".format(
             self.__class__.__name__, hex(id(self)), self.symbol, self.desc)
 
-WARNING_ALREADY_EXISTS_IN_ODB = Code('W01', 'already exists in odb')
-WARNING_MISSING_DEF = Code('E07', 'missing def')
-WARNING_NO_DEF_FOUND = Code('W02', 'no def found')
+WARNING_ALREADY_EXISTS_IN_ODB = Code('W01', 'already exists in ODB')
+WARNING_MISSING_DEF = Code('W02', 'missing def')
+WARNING_NO_DEF_FOUND = Code('W03', 'no def found')
+WARNING_MISSING_DEF_INCL_ODB = Code('W04', 'missing def incl. ODB')
 ERROR_ITEM_INCLUDED_MULTIPLE_TIMES = Code('E01', 'item incl multiple')
 ERROR_ITEM_INCLUDED_BUT_MISSING = Code('E02', 'incl missing')
 ERROR_INCLUDE_COULD_NOT_BE_PARSED = Code('E03', 'incl parsing error')
@@ -92,6 +93,11 @@ class _Incorrect(object):
         self.value_raw = value_raw
         self.value = value
         self.code = code
+        
+    def __repr__(self):
+        return "<{} at {} value_raw:'{}' value:'{}' code:'{}'>".format(
+            self.__class__.__name__, hex(id(self)), self.value_raw, 
+            self.value, self.code)
         
 class Warning(_Incorrect):
     pass
@@ -132,29 +138,26 @@ class EnMasse(ManageCommand):
         
         self.args = args
         self.curdir = self.args.curdir
-        self.force_override = self.args.f
+        self.replace_odb_objects = self.args.replace_odb_objects
         self.has_import = getattr(args, 'import')
         self.ignore_missing_defs = args.ignore_missing_defs
         self.json = {}
         
         self.odb_objects = Bunch()
-        self.objects = Bunch()
+        self.odb_services = Bunch()
         
         # 
         # Tasks and scenarios
         #
         # 1) Export all local JSON files into one (--export-local)
         # 2) Export all definitions from ODB (--export-odb)
-        # -> 3) Export all local JSON files with ODB definitions merged into one (--export-local --export-odb):
-        #    3a) bail out if local JSON overrides any from ODB (no -f)
-        #    3b) override whatever is found in ODB with values from JSON (-f)
+        # 3) Export all local JSON files with ODB definitions merged into one (--export-local --export-odb):
         # -> 4) Import definitions from a local JSON file (--import)
-        #    4a) delete all ODB definitions before importing a local JSON (--delete-all-odb-first)
-        #    4b) bail out if local JSON overrides any from ODB (no -f)
-        #    4c) override whatever is found in ODB with values from JSON (-f)
+        #    4a) bail out if local JSON overrides any from ODB (no -f)
+        #    4b) override whatever is found in ODB with values from JSON (-f)
         #
         
-        if args.export_odb:
+        if args.export_odb or self.has_import:
 
             # Checks if connections to ODB/Redis are configured properly
             cc = CheckConfig(self.args)
@@ -170,7 +173,7 @@ class EnMasse(ManageCommand):
             self.logger.error('Cannot specify import and export options at the same time, stopping now')
             sys.exit(self.SYS_ERROR.CONFLICTING_OPTIONS)
 
-        if args.export_local:
+        if args.export_local or self.has_import:
             input_path = self.ensure_input_exists()
             self.json = bunchify(loads(open(input_path).read()))
             
@@ -181,7 +184,7 @@ class EnMasse(ManageCommand):
                 self.report_warnings_errors([json_sanity_results])
                 sys.exit(self.SYS_ERROR.INVALID_INPUT)
             
-        # 3) a/b
+        # 3)
         if args.export_local and args.export_odb:
             self.report_warnings_errors(self.export_local_odb())
             self.save_json()
@@ -196,9 +199,9 @@ class EnMasse(ManageCommand):
             self.report_warnings_errors(self.export_odb())
             self.save_json()
            
-        # 4) a/b/c
+        # 4) a/b
         elif self.has_import:
-            self.import_()
+            self.report_warnings_errors(self.import_())
             
         else:
             self.logger.error('At least one of --export-local, --export-odb or --import is required, stopping now')
@@ -571,7 +574,7 @@ class EnMasse(ManageCommand):
                     
 # ##############################################################################
     
-    def find_overrides(self):
+    def find_already_existing_odb_objects(self):
         warnings = []
         errors = []
         
@@ -588,16 +591,14 @@ class EnMasse(ManageCommand):
                     msg = "{} has no 'name' key ({})".format(value_dict.toDict(), key)
                     errors.append(Error(raw, msg, ERROR_NAME_MISSING))
 
-                if 'http' in key or 'soap' in key:
-                    connection, transport = key.split('-', 1)
-                    connection = 'outgoing' if connection == 'outconn' else connection
-                    transport = transport.replace('-', '_')
+                if key == 'http_soap':
+                    connection = value_dict.get('connection')
+                    transport = value_dict.get('transport')
                     
                     for item in self.odb_objects.http_soap:
                         if connection == item.connection and transport == item.transport:
                             if value_name == item.name:
                                 add_warning(key, value_dict, item)
-                                
                 else:
                     odb_defs = self.odb_objects[key.replace('-', '_')]
                     for odb_def in odb_defs:
@@ -683,16 +684,16 @@ class EnMasse(ManageCommand):
                             continue
 
                         def_names = tuple(sorted([def_.name for def_ in defs]))
-                        raw = (def_name, def_names)
+                        raw = (def_key, def_name, def_names)
                         dependants = missing_def_names.setdefault(raw, set())
                         dependants.add(item_key)
                         
         if not self.ignore_missing_defs:
-            for(missing_def, existing_ones), dependants in missing_def_names.items():
+            for(def_key, missing_def, existing_ones), dependants in missing_def_names.items():
                 if missing_def == NO_SEC_DEF_NEEDED:
                     continue
                 dependants = sorted(dependants)
-                raw = (missing_def, existing_ones, dependants)
+                raw = (def_key, missing_def, existing_ones, dependants)
                 value = "'{}' is needed by '{}' but was not among '{}'".format(missing_def, dependants, existing_ones)
                 warnings.append(Warning(raw, value, WARNING_MISSING_DEF))
             
@@ -857,11 +858,60 @@ class EnMasse(ManageCommand):
         return self.export_local_odb(False)
 
 # ##############################################################################
+
+    def validate_import_data(self):
+        warnings = []
+        errors = []
+
+        items_defs = {
+            'def_amqp':'zato.definition.amqp.get-list',
+            'def_jms_wmq':'zato.definition.jms-wmq.get-list',
+            'def_sec':'zato.security.get-list',
+        }
         
-    def import_(self):
-        # Find channels and jobs that require services that don't exist
+        def has_def(def_type, def_name):
+            service = items_defs[def_type]
+            response = self.client.invoke(service, {'cluster_id':self.client.cluster_id})
+            if response.ok:
+                for item in response.data:
+                    if item['name'] == def_name:
+                        return False
+                    
+            return False
+        
+        missing_defs = self.find_missing_defs()
+        if missing_defs:
+            for warning in missing_defs.warnings:
+                def_type, def_name, _, dependants = warning.value_raw
+                if not has_def(def_type, def_name):
+                    raw = (def_type, def_name)
+                    value = "Definition '{}' not found in JSON/ODB ({}), needed by '{}'".format(
+                        def_name, def_type, dependants)
+                    warnings.append(Warning(raw, value, WARNING_MISSING_DEF_INCL_ODB))
+
+        for json_key in self.json:
+            if 'channel' in json_key or json_key in('scheduler', 'http_soap'):
+                print(json_key)
+            
+        return Results(warnings, errors)
+    
+    def import_objects(self, already_existing):
         pass
         
+    def import_(self):
+        self.get_odb_objects()
+
+        # Find channels and jobs that require services that don't exist
+        results = self.validate_import_data()
+        if not results.ok:
+            return [results]
+
+        already_existing = self.find_already_existing_odb_objects()
+        if not already_existing.ok and not self.replace_odb_objects:
+            return [already_existing]
+
+        return []
+
 # ##############################################################################
 
 def main():
@@ -873,7 +923,7 @@ def main():
     parser.add_argument('--export-odb', help='Export ODB definitions into one file (can be used with --export-local)', action='store_true')
     parser.add_argument('--import', help='Import definitions from a local JSON (excludes --export-*)', action='store_true')
     parser.add_argument('--ignore-missing-defs', help='Import definitions from a local JSON (excludes --export-*)', action='store_true')
-    parser.add_argument('-f', help='Force replacing objects already existing in ODB or JSON', action='store_true')
+    parser.add_argument('--replace-odb-objects', help='Force replacing objects already existing in ODB during import', action='store_true')
     parser.add_argument('--input', help="Path to an input JSON document")
     parser.add_argument('--cols_width', help='A list of columns width to use for the table output, default: {}'.format(DEFAULT_COLS_WIDTH))
     parser.add_argument('--path', help='Path to a running Zato server')
