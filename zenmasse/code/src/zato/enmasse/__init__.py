@@ -81,6 +81,8 @@ ERROR_NO_DEF_KEY_IN_LOOKUP_TABLE = Code('E06', 'no def key in lookup')
 ERROR_KEYS_MISSING = Code('E08', 'missing keys')
 ERROR_INVALID_SEC_DEF_TYPE = Code('E09', 'invalid sec def type')
 ERROR_INVALID_KEY = Code('E10', 'invalid key')
+ERROR_SERVICE_NAME_MISSING = Code('E11', 'service name missing')
+ERROR_SERVICE_MISSING = Code('E12', 'service missing')
 
 class _DummyLink(object):
     """ Pip requires URLs to have a .url attribute.
@@ -889,9 +891,28 @@ class EnMasse(ManageCommand):
                         def_name, def_type, dependants)
                     warnings.append(Warning(raw, value, WARNING_MISSING_DEF_INCL_ODB))
 
-        for json_key in self.json:
-            if 'channel' in json_key or json_key in('scheduler', 'http_soap'):
-                print(json_key)
+        existing_services = Bunch()
+        odb_services = self.client.invoke(
+            'zato.service.get-list', {'cluster_id':self.client.cluster_id, 'name_filter':'*'})
+        if odb_services.has_data:
+            for service in odb_services.data:
+                existing_services[service['name']] = Bunch(service)
+                
+        print(existing_services)
+        
+        def needs_service(json_key, item):
+            return 'channel' in json_key or json_key == 'scheduler' or \
+                   ('http_soap' in json_key and item.get('connection') == 'channel')
+
+        for json_key, items in self.json.items():
+            for item in items:
+                if needs_service(json_key, item):
+                    service_name = item.get('service')
+                    if not service_name:
+                        item_dict = item.toDict()
+                        raw = (service_name, item_dict, json_key)
+                        value = "No service defined in '{}' ({})".format(item_dict, json_key)
+                        errors.append(Error(raw, value, ERROR_SERVICE_NAME_MISSING))
             
         return Results(warnings, errors)
     
