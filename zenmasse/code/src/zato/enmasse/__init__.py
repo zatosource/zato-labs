@@ -83,7 +83,7 @@ ERROR_INVALID_SEC_DEF_TYPE = Code('E09', 'invalid sec def type')
 ERROR_INVALID_KEY = Code('E10', 'invalid key')
 ERROR_SERVICE_NAME_MISSING = Code('E11', 'service name missing')
 ERROR_SERVICE_MISSING = Code('E12', 'service missing')
-ERROR_COULD_NOT_UPDATE_ODB = Code('E13', 'could not update ODB')
+ERROR_COULD_NOT_UPDATE_OBJECT_ODB = Code('E13', 'could not update object in ODB')
 
 class _DummyLink(object):
     """ Pip requires URLs to have a .url attribute.
@@ -950,6 +950,11 @@ class EnMasse(ManageCommand):
             for item in self.odb_objects[item_type]:
                 if item.name == name:
                     return item
+                
+        def get_security_by_name(name):
+            for item in self.odb_objects.def_sec:
+                if item.name == name:
+                    return item.id
         
         def update_def(def_type, attrs):
             attrs_dict = attrs.toDict()
@@ -957,16 +962,28 @@ class EnMasse(ManageCommand):
             import_info = info_dict[info_key]
 
             service_class = getattr(import_info.mod, 'Edit')
-            service = service_class.get_name()
             
             # Fetch an item from a cache of ODB object and assign its ID
             # to attrs so that the Edit service knows what to update.
             odb_item = get_odb_item(def_type, attrs.name)
             attrs.id = odb_item.id
+            
+            if def_type == 'http_soap':
+                if attrs.sec_def == NO_SEC_DEF_NEEDED:
+                    attrs.security_id = None
+                else:
+                    attrs.security_id = get_security_by_name(attrs.sec_def)
 
-            response = self.client.invoke(service, attrs)
+            response = self.client.invoke(service_class.get_name(), attrs)
             if not response.ok:
                 return response.details
+            else:
+                if import_info.needs_password:
+                    service_class = getattr(import_info.mod, 'ChangePassword')
+                    request = {'id':attrs.id, 'password1':attrs.password, 'password2':attrs.password}
+                    response = self.client.invoke(service_class.get_name(), request)
+                    if not response.ok:
+                        return response.details
             
         existing_defs = []
         existing_other = []
@@ -987,7 +1004,7 @@ class EnMasse(ManageCommand):
                 raw = (item_type, attrs_dict, error_response)
                 value = "Could not update '{}' with '{}', response was '{}'".format(
                     attrs.name, attrs_dict, error_response)
-                errors.append(Error(raw, value, ERROR_COULD_NOT_UPDATE_ODB))
+                errors.append(Error(raw, value, ERROR_COULD_NOT_UPDATE_OBJECT_ODB))
                 return Results(warnings, errors)
             
             self.logger.info("Updated '{}' ({})".format(attrs.name, item_type))
