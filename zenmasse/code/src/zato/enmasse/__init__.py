@@ -968,21 +968,27 @@ class EnMasse(ManageCommand):
             if not response.ok:
                 return response.details
             
+        existing_defs = []
+        existing_other = []
+        
         for w in already_existing.warnings:
+            item_type, _ = w.value_raw
+            if 'def' in item_type:
+                existing_defs.append(w)
+            else:
+                existing_other.append(w)
+            
+        for w in chain(existing_defs, existing_other):
             item_type, attrs = w.value_raw
             attrs_dict = attrs.toDict()
             attrs.cluster_id = self.client.cluster_id
-            if 'def' in item_type:
-                error_response = update_def(item_type, attrs)
-                if error_response:
-                    raw = (item_type, attrs_dict, error_response)
-                    value = "Could not update '{}' with '{}', response was '{}'".format(
-                        attrs.name, attrs_dict, error_response)
-                    errors.append(Error(raw, value, ERROR_COULD_NOT_UPDATE_ODB))
-                    return Results(warnings, errors)
-            else:
-                #print(111)#, w.value_raw)
-                pass
+            error_response = update_def(item_type, attrs)
+            if error_response:
+                raw = (item_type, attrs_dict, error_response)
+                value = "Could not update '{}' with '{}', response was '{}'".format(
+                    attrs.name, attrs_dict, error_response)
+                errors.append(Error(raw, value, ERROR_COULD_NOT_UPDATE_ODB))
+                return Results(warnings, errors)
             
             self.logger.info("Updated '{}' ({})".format(attrs.name, item_type))
             
