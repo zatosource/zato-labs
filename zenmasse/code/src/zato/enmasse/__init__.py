@@ -40,21 +40,21 @@ from zato.common.odb.model import ConnDefAMQP, ConnDefWMQ, HTTPBasicAuth, \
      HTTPSOAP, SecurityBase, Server, Service, TechnicalAccount, to_json, WSSDefinition
 from zato.common.util import get_config
 from zato.server.service import ForceType
-from zato.server.service.internal.channel.amqp import Create as channel_amqp_Create
-from zato.server.service.internal.channel.jms_wmq import Create as channel_jms_wmq_Create
-from zato.server.service.internal.channel.zmq import Create as channel_zmq_Create
-from zato.server.service.internal.definition.amqp import Create as definition_amqp_Create
-from zato.server.service.internal.definition.jms_wmq import Create as definition_jms_wmq_Create
-from zato.server.service.internal.http_soap import Create as http_soap_Create
-from zato.server.service.internal.outgoing.amqp import Create as outgoing_amqp_Create
-from zato.server.service.internal.outgoing.ftp import Create as outgoing_ftp_Create
-from zato.server.service.internal.outgoing.jms_wmq import Create as outgoing_jms_wmq_Create
-from zato.server.service.internal.outgoing.sql import Create as outgoing_sql_Create
-from zato.server.service.internal.outgoing.zmq import Create as outgoing_zmq_Create
-from zato.server.service.internal.scheduler import Create as scheduler_Create
-from zato.server.service.internal.security.basic_auth import Create as security_basic_auth_Create
-from zato.server.service.internal.security.tech_account import Create as security_tech_account_Create
-from zato.server.service.internal.security.wss import Create as security_wss_Create
+from zato.server.service.internal.channel import amqp as channel_amqp_mod
+from zato.server.service.internal.channel import jms_wmq as channel_jms_wmq_mod
+from zato.server.service.internal.channel import zmq as channel_zmq_mod
+from zato.server.service.internal.definition import amqp as definition_amqp_mod
+from zato.server.service.internal.definition import jms_wmq as definition_jms_wmq_mod
+from zato.server.service.internal import http_soap as http_soap_mod
+from zato.server.service.internal.outgoing import amqp as outgoing_amqp_mod
+from zato.server.service.internal.outgoing import ftp as outgoing_ftp_mod
+from zato.server.service.internal.outgoing import jms_wmq as outgoing_jms_wmq_mod
+from zato.server.service.internal.outgoing import sql as outgoing_sql_mod
+from zato.server.service.internal.outgoing import zmq as outgoing_zmq_mod
+from zato.server.service.internal import scheduler as scheduler_mod
+from zato.server.service.internal.security import basic_auth as sec_basic_auth_mod
+from zato.server.service.internal.security import tech_account as sec_tech_account_mod
+from zato.server.service.internal.security import wss as sec_wss_mod
 
 DEFAULT_COLS_WIDTH = '15,100'
 NO_SEC_DEF_NEEDED = 'zato-no-security'
@@ -83,6 +83,7 @@ ERROR_INVALID_SEC_DEF_TYPE = Code('E09', 'invalid sec def type')
 ERROR_INVALID_KEY = Code('E10', 'invalid key')
 ERROR_SERVICE_NAME_MISSING = Code('E11', 'service name missing')
 ERROR_SERVICE_MISSING = Code('E12', 'service missing')
+ERROR_COULD_NOT_UPDATE_ODB = Code('E13', 'could not update ODB')
 
 class _DummyLink(object):
     """ Pip requires URLs to have a .url attribute.
@@ -707,30 +708,30 @@ class EnMasse(ManageCommand):
     def validate_input(self):
         errors = []
         required = {}
-        
+
         create_services = {
-            'channel_amqp':channel_amqp_Create,
-            'channel_jms_wmq':channel_jms_wmq_Create,
-            'channel_plain_http':http_soap_Create,
-            'channel_soap':http_soap_Create,
-            'channel_zmq':channel_zmq_Create,
-            'def_amqp':definition_amqp_Create,
-            'def_jms_wmq':definition_jms_wmq_Create,
-            'outconn_amqp':outgoing_amqp_Create,
-            'outconn_ftp':outgoing_ftp_Create,
-            'outconn_jms_wmq':outgoing_jms_wmq_Create,
-            'outconn_plain_http':http_soap_Create,
-            'outconn_soap':http_soap_Create,
-            'outconn_sql':outgoing_sql_Create,
-            'outconn_zmq':outgoing_zmq_Create,
-            'scheduler':scheduler_Create,
-            'http_soap':http_soap_Create,
+            'channel_amqp':channel_amqp_mod.Create,
+            'channel_jms_wmq':channel_jms_wmq_mod.Create,
+            'channel_plain_http':http_soap_mod.Create,
+            'channel_soap':http_soap_mod.Create,
+            'channel_zmq':channel_zmq_mod.Create,
+            'def_amqp':definition_amqp_mod.Create,
+            'def_jms_wmq':definition_jms_wmq_mod.Create,
+            'http_soap':http_soap_mod.Create,
+            'outconn_amqp':outgoing_amqp_mod.Create,
+            'outconn_ftp':outgoing_ftp_mod.Create,
+            'outconn_jms_wmq':outgoing_jms_wmq_mod.Create,
+            'outconn_plain_http':http_soap_mod.Create,
+            'outconn_soap':http_soap_mod.Create,
+            'outconn_sql':outgoing_sql_mod.Create,
+            'outconn_zmq':outgoing_zmq_mod.Create,
+            'scheduler':scheduler_mod.Create,
         }
         
         def_sec_services = {
-            'basic_auth':security_basic_auth_Create,
-            'wss':security_wss_Create,
-            'tech_acc':security_tech_account_Create,
+            'basic_auth':sec_basic_auth_mod.Create,
+            'wss':sec_wss_mod.Create,
+            'tech_acc':sec_tech_account_mod.Create,
         }
         
         create_services_keys = sorted(create_services)
@@ -891,15 +892,6 @@ class EnMasse(ManageCommand):
                         def_name, def_type, dependants)
                     warnings.append(Warning(raw, value, WARNING_MISSING_DEF_INCL_ODB))
 
-        existing_services = Bunch()
-        odb_services = self.client.invoke(
-            'zato.service.get-list', {'cluster_id':self.client.cluster_id, 'name_filter':'*'})
-        if odb_services.has_data:
-            for service in odb_services.data:
-                existing_services[service['name']] = Bunch(service)
-                
-        print(existing_services)
-        
         def needs_service(json_key, item):
             return 'channel' in json_key or json_key == 'scheduler' or \
                    ('http_soap' in json_key and item.get('connection') == 'channel')
@@ -907,20 +899,102 @@ class EnMasse(ManageCommand):
         for json_key, items in self.json.items():
             for item in items:
                 if needs_service(json_key, item):
+                    item_dict = item.toDict()
                     service_name = item.get('service')
+                    raw = (service_name, item_dict, json_key)
                     if not service_name:
-                        item_dict = item.toDict()
-                        raw = (service_name, item_dict, json_key)
                         value = "No service defined in '{}' ({})".format(item_dict, json_key)
                         errors.append(Error(raw, value, ERROR_SERVICE_NAME_MISSING))
+                    else:
+                        if service_name not in self.odb_services:
+                            value = "Service '{}' from '{}' missing in ODB ({})".format(service_name, item_dict, json_key)
+                            errors.append(Error(raw, value, ERROR_SERVICE_MISSING))
+
+        return Results(warnings, errors)
+
+    def import_objects(self, already_existing):
+        warnings = []
+        errors = []
+        
+        class ImportInfo(object):
+            def __init__(self, mod, needs_password=False):
+                self.mod = mod
+                self.needs_password = needs_password
+                
+            def __repr__(self):
+                return "<{} at {} mod:'{}' needs_password:'{}'>".format(
+                    self.__class__.__name__, hex(id(self)), self.mod, self.needs_password)
+
+        service_info = {
+            'channel_amqp':ImportInfo(channel_amqp_mod),
+            'channel_jms_wmq':ImportInfo(channel_jms_wmq_mod),
+            'channel_zmq':ImportInfo(channel_zmq_mod),
+            'def_amqp':ImportInfo(definition_amqp_mod, True),
+            'def_jms_wmq':ImportInfo(definition_jms_wmq_mod),
+            'http_soap':ImportInfo(http_soap_mod),
+            'outconn_amqp':ImportInfo(outgoing_amqp_mod),
+            'outconn_ftp':ImportInfo(outgoing_ftp_mod, True),
+            'outconn_jms_wmq':ImportInfo(outgoing_jms_wmq_mod),
+            'outconn_sql':ImportInfo(outgoing_sql_mod, True),
+            'outconn_zmq':ImportInfo(outgoing_zmq_mod),
+            'scheduler':ImportInfo(scheduler_mod),
+        }
+        
+        def_sec_info = {
+            'basic_auth':ImportInfo(sec_basic_auth_mod, True),
+            'wss':ImportInfo(sec_wss_mod, True),
+            'tech_acc':ImportInfo(sec_tech_account_mod, True),
+        }
+        
+        def get_odb_item(item_type, name):
+            for item in self.odb_objects[item_type]:
+                if item.name == name:
+                    return item
+        
+        def update_def(def_type, attrs):
+            attrs_dict = attrs.toDict()
+            info_dict, info_key = (def_sec_info, attrs.type) if 'sec' in def_type else (service_info, def_type)
+            import_info = info_dict[info_key]
+
+            service_class = getattr(import_info.mod, 'Edit')
+            service = service_class.get_name()
+            
+            # Fetch an item from a cache of ODB object and assign its ID
+            # to attrs so that the Edit service knows what to update.
+            odb_item = get_odb_item(def_type, attrs.name)
+            attrs.id = odb_item.id
+
+            response = self.client.invoke(service, attrs)
+            if not response.ok:
+                return response.details
+            
+        for w in already_existing.warnings:
+            item_type, attrs = w.value_raw
+            attrs_dict = attrs.toDict()
+            attrs.cluster_id = self.client.cluster_id
+            if 'def' in item_type:
+                error_response = update_def(item_type, attrs)
+                if error_response:
+                    raw = (item_type, attrs_dict, error_response)
+                    value = "Could not update '{}' with '{}', response was '{}'".format(
+                        attrs.name, attrs_dict, error_response)
+                    errors.append(Error(raw, value, ERROR_COULD_NOT_UPDATE_ODB))
+                    return Results(warnings, errors)
+            else:
+                #print(111)#, w.value_raw)
+                pass
+            
+            self.logger.info("Updated '{}' ({})".format(attrs.name, item_type))
             
         return Results(warnings, errors)
-    
-    def import_objects(self, already_existing):
-        pass
         
     def import_(self):
         self.get_odb_objects()
+        
+        odb_services = self.client.invoke('zato.service.get-list', {'cluster_id':self.client.cluster_id, 'name_filter':'*'})
+        if odb_services.has_data:
+            for service in odb_services.data:
+                self.odb_services[service['name']] = Bunch(service)
 
         # Find channels and jobs that require services that don't exist
         results = self.validate_import_data()
@@ -930,6 +1004,10 @@ class EnMasse(ManageCommand):
         already_existing = self.find_already_existing_odb_objects()
         if not already_existing.ok and not self.replace_odb_objects:
             return [already_existing]
+        
+        results = self.import_objects(already_existing)
+        if not results.ok:
+            return [results]
 
         return []
 
