@@ -127,10 +127,6 @@ class ZatoClient(AnyServiceInvoker):
 class EnMasse(ManageCommand):
     """ Creates server objects en masse.
     """
-    # TODO: Ping outgoing connections (at least check ports)
-    # TODO: --delete-all-first must never delete Zato stuff
-    # TODO: Make sure any new connector-based connections are not active by default
-
     class SYS_ERROR(ManageCommand.SYS_ERROR):
         NO_INPUT = 11
         CONFLICTING_OPTIONS = 12
