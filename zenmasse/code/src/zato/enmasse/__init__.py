@@ -1130,6 +1130,4 @@ def main():
     EnMasse(args).run(args)
 
 if __name__ == '__main__':
-    print('TODO document that security def names must be unique')
-    print('TODO document zato-no-security constant')
     main()
