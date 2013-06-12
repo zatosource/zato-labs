@@ -125,7 +125,7 @@ class ZatoClient(AnyServiceInvoker):
         self.odb_session = None
     
 class EnMasse(ManageCommand):
-    """ Creates server objects en masse.
+    """ Manages server objects en masse.
     """
     class SYS_ERROR(ManageCommand.SYS_ERROR):
         NO_INPUT = 11
