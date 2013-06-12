@@ -1045,6 +1045,10 @@ class EnMasse(ManageCommand):
             # (this in fact would result in an error as the object already exists).
             if is_edit:
                 remove_from_import_list(item_type, attrs.name)
+                
+            # We'll see how expensive this call is. Seems to be but
+            # let's see in practice if it's a burden.
+            self.get_odb_objects()
 
         #
         # Update already existing objects first, definitions before any object
