@@ -986,6 +986,11 @@ class EnMasse(ManageCommand):
                     attrs.security_id = None
                 else:
                     attrs.security_id = get_security_by_name(attrs.sec_def)
+                    
+            if def_type in('channel_amqp', 'channel_jms_wmq', 'outconn_amqp', 'outconn_jms_wmq'):
+                def_type_name = def_type.replace('channel', 'def').replace('outconn', 'def')
+                odb_item = get_odb_item(def_type_name, attrs.get('def'))
+                attrs.def_id = odb_item.id                
 
             response = self.client.invoke(service_class.get_name(), attrs)
             if not response.ok:
