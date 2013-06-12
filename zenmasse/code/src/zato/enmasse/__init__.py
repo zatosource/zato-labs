@@ -153,8 +153,8 @@ class EnMasse(ManageCommand):
         # 2) Export all definitions from ODB (--export-odb)
         # 3) Export all local JSON files with ODB definitions merged into one (--export-local --export-odb):
         # -> 4) Import definitions from a local JSON file (--import)
-        #    4a) bail out if local JSON overrides any from ODB (no -f)
-        #    4b) override whatever is found in ODB with values from JSON (-f)
+        #    4a) bail out if local JSON overrides any from ODB (no --replace-odb-objects)
+        #    4b) override whatever is found in ODB with values from JSON (--replace-odb-objects)
         #
         
         if args.export_odb or self.has_import:
