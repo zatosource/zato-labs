@@ -83,7 +83,7 @@ ERROR_INVALID_SEC_DEF_TYPE = Code('E09', 'invalid sec def type')
 ERROR_INVALID_KEY = Code('E10', 'invalid key')
 ERROR_SERVICE_NAME_MISSING = Code('E11', 'service name missing')
 ERROR_SERVICE_MISSING = Code('E12', 'service missing')
-ERROR_COULD_NOT_UPDATE_OBJECT_ODB = Code('E13', 'could not update object in ODB')
+ERROR_COULD_IMPORT_OBJECT = Code('E13', 'could not import object')
 
 class _DummyLink(object):
     """ Pip requires URLs to have a .url attribute.
@@ -145,6 +145,7 @@ class EnMasse(ManageCommand):
         self.has_import = getattr(args, 'import')
         self.ignore_missing_defs = args.ignore_missing_defs
         self.json = {}
+        self.json_to_import = {}
         
         self.odb_objects = Bunch()
         self.odb_services = Bunch()
@@ -916,6 +917,17 @@ class EnMasse(ManageCommand):
         warnings = []
         errors = []
         
+        existing_defs = []
+        existing_other = []
+        
+        new_defs = []
+        new_other = []
+        
+        # FTP definition may use a password but are not forced to.
+        MAYBE_NEEDS_PASSWORD = 'MAYBE_NEEDS_PASSWORD'
+        
+        self.json_to_import = Bunch(deepcopy(self.json))
+
         class ImportInfo(object):
             def __init__(self, mod, needs_password=False):
                 self.mod = mod
@@ -933,7 +945,7 @@ class EnMasse(ManageCommand):
             'def_jms_wmq':ImportInfo(definition_jms_wmq_mod),
             'http_soap':ImportInfo(http_soap_mod),
             'outconn_amqp':ImportInfo(outgoing_amqp_mod),
-            'outconn_ftp':ImportInfo(outgoing_ftp_mod, True),
+            'outconn_ftp':ImportInfo(outgoing_ftp_mod, MAYBE_NEEDS_PASSWORD),
             'outconn_jms_wmq':ImportInfo(outgoing_jms_wmq_mod),
             'outconn_sql':ImportInfo(outgoing_sql_mod, True),
             'outconn_zmq':ImportInfo(outgoing_zmq_mod),
@@ -956,17 +968,17 @@ class EnMasse(ManageCommand):
                 if item.name == name:
                     return item.id
         
-        def update_def(def_type, attrs):
+        def import_object(def_type, attrs, is_edit):
             attrs_dict = attrs.toDict()
             info_dict, info_key = (def_sec_info, attrs.type) if 'sec' in def_type else (service_info, def_type)
             import_info = info_dict[info_key]
-
-            service_class = getattr(import_info.mod, 'Edit')
+            service_class = getattr(import_info.mod, 'Edit' if is_edit else 'Create')
             
             # Fetch an item from a cache of ODB object and assign its ID
             # to attrs so that the Edit service knows what to update.
-            odb_item = get_odb_item(def_type, attrs.name)
-            attrs.id = odb_item.id
+            if is_edit:
+                odb_item = get_odb_item(def_type, attrs.name)
+                attrs.id = odb_item.id
             
             if def_type == 'http_soap':
                 if attrs.sec_def == NO_SEC_DEF_NEEDED:
@@ -978,37 +990,91 @@ class EnMasse(ManageCommand):
             if not response.ok:
                 return response.details
             else:
+                verb = 'Updated' if is_edit else 'Created'
+                self.logger.info("{} object '{}' ({})".format(verb, attrs.name, item_type))
                 if import_info.needs_password:
-                    service_class = getattr(import_info.mod, 'ChangePassword')
-                    request = {'id':attrs.id, 'password1':attrs.password, 'password2':attrs.password}
-                    response = self.client.invoke(service_class.get_name(), request)
-                    if not response.ok:
-                        return response.details
-            
-        existing_defs = []
-        existing_other = []
-        
-        for w in already_existing.warnings:
-            item_type, _ = w.value_raw
-            if 'def' in item_type:
-                existing_defs.append(w)
-            else:
-                existing_other.append(w)
-            
-        for w in chain(existing_defs, existing_other):
-            item_type, attrs = w.value_raw
+                    
+                    password = attrs.get('password')
+                    if not password:
+                        if import_info.needs_password == MAYBE_NEEDS_PASSWORD:
+                            self.logger.info("Password missing but not required '{}' ({})".format(attrs.name, item_type))
+                        else:
+                            return "Password missing but is required '{}' ({}) attrs '{}'".format(attrs.name, item_type, attrs_dict)
+                    else:
+                        if not is_edit:
+                            attrs.id = response.data['id']
+    
+                        service_class = getattr(import_info.mod, 'ChangePassword')
+                        request = {'id':attrs.id, 'password1':attrs.password, 'password2':attrs.password}
+                        response = self.client.invoke(service_class.get_name(), request)
+                        if not response.ok:
+                            return response.details
+                        else:
+                            self.logger.info("Updated password '{}' ({})".format(attrs.name, item_type))
+                        
+        def remove_from_import_list(item_type, name):
+            for json_item_type, items in self.json_to_import.items():
+                if json_item_type == item_type:
+                    for item in items:
+                        if item.name == name:
+                            items.remove(item)
+                            
+                            # Name is unique, we can stop now
+                            return
+                        
+        def _import(item_type, attrs, is_edit):
             attrs_dict = attrs.toDict()
             attrs.cluster_id = self.client.cluster_id
-            error_response = update_def(item_type, attrs)
+            error_response = import_object(item_type, attrs, is_edit)
+            
+            # We quit on first error encountered
             if error_response:
                 raw = (item_type, attrs_dict, error_response)
-                value = "Could not update '{}' with '{}', response was '{}'".format(
+                value = "Could not import '{}' with '{}', response was '{}'".format(
                     attrs.name, attrs_dict, error_response)
-                errors.append(Error(raw, value, ERROR_COULD_NOT_UPDATE_OBJECT_ODB))
+                errors.append(Error(raw, value, ERROR_COULD_IMPORT_OBJECT))
                 return Results(warnings, errors)
             
-            self.logger.info("Updated '{}' ({})".format(attrs.name, item_type))
+            # It's been just imported so we don't want to create in next steps
+            # (this in fact would result in an error as the object already exists).
+            if is_edit:
+                remove_from_import_list(item_type, attrs.name)
+
+        #
+        # Update already existing objects first, definitions before any object
+        # that may depend on them ..
+        #
+        for w in already_existing.warnings:
+            item_type, _ = w.value_raw
+            existing = existing_defs if 'def' in item_type else existing_other
+            existing.append(w)
+        
+        #
+        # .. actually invoke the updates now ..
+        #
+        for w in chain(existing_defs, existing_other):
+            item_type, attrs = w.value_raw
+            results = _import(item_type, attrs, True)
+            if results:
+                return results
             
+        #
+        # Create new objects, again, definitions come first ..
+        #
+        for item_type, items in self.json_to_import.items():
+            new = new_defs if 'def' in item_type else new_other
+            new.append({item_type:items})
+            
+        #
+        # .. actually create the objects now.
+        #
+        for elem in chain(new_defs, new_other):
+            for item_type, attr_list in elem.items():
+                for attrs in attr_list:
+                    results = _import(item_type, attrs, False)
+                    if results:
+                        return results
+
         return Results(warnings, errors)
         
     def import_(self):
@@ -1059,4 +1125,5 @@ def main():
 
 if __name__ == '__main__':
     print('TODO document that security def names must be unique')
+    print('TODO document zato-no-security constant')
     main()
