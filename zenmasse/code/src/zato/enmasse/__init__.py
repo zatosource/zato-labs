@@ -1116,7 +1116,7 @@ def main():
     parser.add_argument('--export-local', help='Export local JSON definitions into one file (can be used with --export-odb)', action='store_true')
     parser.add_argument('--export-odb', help='Export ODB definitions into one file (can be used with --export-local)', action='store_true')
     parser.add_argument('--import', help='Import definitions from a local JSON (excludes --export-*)', action='store_true')
-    parser.add_argument('--ignore-missing-defs', help='Import definitions from a local JSON (excludes --export-*)', action='store_true')
+    parser.add_argument('--ignore-missing-defs', help='Ignore missing definitions when exporting to JSON', action='store_true')
     parser.add_argument('--replace-odb-objects', help='Force replacing objects already existing in ODB during import', action='store_true')
     parser.add_argument('--input', help="Path to an input JSON document")
     parser.add_argument('--cols_width', help='A list of columns width to use for the table output, default: {}'.format(DEFAULT_COLS_WIDTH))
