@@ -547,7 +547,8 @@ class EnMasse(ManageCommand):
         for item in self.client.odb_session.query(HTTPSOAP).\
             filter(HTTPSOAP.cluster_id == self.client.cluster_id).\
             filter(HTTPSOAP.is_internal == False).all():
-            self.odb_objects.http_soap.append(get_fields(item))
+            if item.name not in('admin.invoke', 'pubapi'):
+                self.odb_objects.http_soap.append(get_fields(item))
 
         service_key = {
             'zato.channel.amqp.get-list':'channel_amqp',
