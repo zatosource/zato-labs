@@ -17,6 +17,7 @@ from itertools import chain
 from json import dumps
 from os.path import abspath, exists, join
 from traceback import format_exc
+from uuid import uuid4
 
 # anyjson
 from anyjson import loads
@@ -1126,6 +1127,9 @@ def main():
 
     args = parser.parse_args()
     args.curdir = abspath(os.getcwd())
+    
+    if not args.path:
+        args.path = '.' # So superclasses are happy
     
     EnMasse(args).run(args)
 
