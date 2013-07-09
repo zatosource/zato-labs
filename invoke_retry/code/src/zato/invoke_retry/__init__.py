@@ -67,15 +67,27 @@ class _InvokeRetry(Service):
     def _retry(self, remaining):
         
         try:
-            response = self.invoke(self.req_bunch.service, *self.req_bunch.args, **self.req_bunch.kwargs)
+            response = self.invoke(self.req_bunch.target, *self.req_bunch.args, **self.req_bunch.kwargs)
         except Exception, e:
             msg = _retry_failed_msg(
                 (self.req_bunch.retry_repeats-remaining)+1, self.req_bunch.retry_repeats,
-                self.req_bunch.service, self.req_bunch.retry_seconds, self.req_bunch.orig_cid, e)
+                self.req_bunch.target, self.req_bunch.retry_seconds, self.req_bunch.orig_cid, e)
             self.logger.info(msg)
             raise RetryFailed(remaining-1, e)
         else:
             return response
+        
+    def _notify_callback(self, is_ok):
+        callback_request = {
+            'ok': is_ok,
+            'orig_cid': self.req_bunch.orig_cid,
+            'target': self.req_bunch.target,
+            'retry_seconds': self.req_bunch.retry_seconds,
+            'retry_repeats': self.req_bunch.retry_repeats,
+            'context': self.req_bunch.callback_context
+        }
+        
+        self.invoke_async(self.req_bunch.callback, dumps(callback_request))
     
     def _on_retry_finished(self, g):
         """ A callback method invoked when a retry finishes. Will decide whether it should be
@@ -91,11 +103,16 @@ class _InvokeRetry(Service):
                 g = spawn_later(self.req_bunch.retry_seconds, self._retry, e.remaining)
                 g.link(self._on_retry_finished)
 
-            # Reached the limit, warn users in logs, invoke callback service and give up.
+            # Reached the limit, warn users in logs, notify callback service and give up.
             else:
                 msg = _retry_limit_reached_msg(self.req_bunch.retry_repeats,
-                    self.req_bunch.service, self.req_bunch.retry_seconds, self.req_bunch.orig_cid)
+                    self.req_bunch.target, self.req_bunch.retry_seconds, self.req_bunch.orig_cid)
                 self.logger.warn(msg)
+                self._notify_callback(False)
+
+        # Let the callback know it's all good
+        else:
+            self._notify_callback(True)
     
     def handle(self):
         # Convert to bunch so it's easier to read everything
@@ -112,7 +129,7 @@ class InvokeRetry(Service):
     def _get_retry_settings(self, name, **kwargs):
         async_fallback = kwargs.get('async_fallback')
         callback = kwargs.get('callback')
-        callback_data = kwargs.get('callback_data')
+        callback_context = kwargs.get('callback_context')
         retry_repeats = kwargs.get('retry_repeats')
         retry_seconds = kwargs.get('retry_seconds')
         retry_minutes = kwargs.get('retry_minutes')
@@ -146,13 +163,13 @@ class InvokeRetry(Service):
                 raise ValueError(msg)
             
         # Note that internally we use seconds only.
-        return async_fallback, callback, callback_data, retry_repeats, retry_seconds or retry_minutes * 60
+        return async_fallback, callback, callback_context, retry_repeats, retry_seconds or retry_minutes * 60
         
     def invoke_retry(self, name, *args, **kwargs):
-        async_fallback, callback, callback_data, retry_repeats, retry_seconds = self._get_retry_settings(name, **kwargs)
+        async_fallback, callback, callback_context, retry_repeats, retry_seconds = self._get_retry_settings(name, **kwargs)
         
         # Get rid of arguments our superclass doesn't understand
-        for item in('async_fallback', 'callback', 'callback_data', 'retry_repeats', 'retry_seconds', 'retry_minutes'):
+        for item in('async_fallback', 'callback', 'callback_context', 'retry_repeats', 'retry_seconds', 'retry_minutes'):
             kwargs.pop(item, True)
             
         # Let's invoke the service and find out if it works, maybe we don't need
@@ -171,7 +188,7 @@ class InvokeRetry(Service):
                 
                 # Request to invoke the background service with ..
                 retry_request = {
-                    'service': name,
+                    'target': name,
                     'retry_repeats': retry_repeats,
                     'retry_seconds': retry_seconds,
                     'orig_cid': self.cid,
@@ -193,8 +210,6 @@ class InvokeRetry(Service):
                     try:
                         result = self.invoke(name, *args, **kwargs)
                     except Exception, e:
-                        #msg = '({}/{}) Could not invoke with retry:[{}], retry_seconds:[{}], cid:[{}], e:[{}]'.format(
-                        #    (retry_repeats-remaining)+1, retry_repeats, name, retry_seconds, self.cid, format_exc(e))
                         msg = _retry_failed_msg((retry_repeats-remaining)+1, retry_repeats, name, retry_seconds, self.cid, e)
                         self.logger.info(msg)
                         sleep(retry_seconds)
@@ -205,7 +220,6 @@ class InvokeRetry(Service):
                     msg = _retry_limit_reached_msg(retry_repeats, name, retry_seconds, self.cid)
                     self.logger.warn(msg)
                     raise ZatoException(None, msg)
-
         else:
             # All good, simply return the response
             return result
@@ -238,7 +252,7 @@ class Example2(InvokeRetry):
     def handle(self):
         kwargs = {
             'callback':Callback.get_name(),
-            'callback_data': {'foo':'bar'},
+            'callback_context': {'foo':'bar'},
             'retry_repeats':retry_repeats, 
             'retry_seconds':retry_seconds,
             'async_fallback':True
@@ -254,7 +268,7 @@ class Example3(InvokeRetry):
     def handle(self):
         kwargs = {
             'callback':Callback.get_name(),
-            'callback_data': {'foo':'bar'},
+            'callback_context': {'foo':'bar'},
             'retry_repeats':retry_repeats, 
             'retry_seconds':retry_seconds
         }
