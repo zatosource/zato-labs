@@ -22,6 +22,10 @@ setup(
       packages = find_packages('src'),
 
       namespace_packages = ['zato'],
+      
+      install_requires=[
+          'openerp-client-lib==1.1.2',
+          ],
 
       zip_safe = False,
 )
