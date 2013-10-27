@@ -1,0 +1,2 @@
+A service that generates HTML using Django templates. Useful for creating dashboards
+for Zato-based middleware and backend services.
