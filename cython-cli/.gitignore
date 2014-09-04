@@ -1,0 +1,4 @@
+env-zato/
+zato-cli/build
+*.c
+*.so
