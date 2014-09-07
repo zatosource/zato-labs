@@ -17,25 +17,33 @@ from Cython.Build import cythonize
 # setuptools
 from setuptools import setup, find_packages
 
+import sys
+if 'setuptools.extension' in sys.modules:
+    m = sys.modules['setuptools.extension']
+    m.Extension.__dict__ = m._Extension.__dict__
+
 curdir = os.path.dirname(os.path.abspath(__file__))
 version = '2.1'
 
 setup(
-      name = 'zato-cli',
-      version = version,
+    name = 'zato-cli',
+    version = version,
 
-      author = 'Zato Developers',
-      author_email = 'info@zato.io',
-      url = 'https://zato.io',
+    author = 'Zato Developers',
+    author_email = 'info@zato.io',
+    url = 'https://zato.io',
 
-      package_dir = {'zato':''},
-      packages = ['zato'],
+    package_dir = {'zato':''},
+    packages = ['zato'],
 
-      ext_modules = cythonize(['src/zato/cli/*.pyx']),
+    setup_requires=['setuptools_cython'],
 
-      zip_safe = False,
-      entry_points = """
-      [console_scripts]
-      zato = zato.cli.zato_command:main
+
+    ext_modules = cythonize(['src/zato/cli/*.pyx']),
+
+    zip_safe = False,
+    entry_points = """
+    [console_scripts]
+    zato = zato.cli.zato_command:main
       """
 )
