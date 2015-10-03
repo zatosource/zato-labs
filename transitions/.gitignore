@@ -1,0 +1,6 @@
+dist
+transitions-env/
+.coverage
+*.egg-info
+*.pyc
+*~
