@@ -61,25 +61,33 @@ class Graph(object):
         roots = self.roots
         edges = []
         nodes = []
+        _roots = []
 
         for node in sorted(self.nodes.values()):
             name = node.name
             if name in roots:
-                name = '~{}'.format(name)
-            nodes.append(name)
+                _roots.append('~{}'.format(name))
+            else:
+                nodes.append(name)
 
-        nodes = ', '.join(nodes)
+        _roots.sort()
+        _roots.reverse()
+
+        for root in _roots:
+            nodes.insert(0, root)
+
+        _nodes = ', '.join(nodes)
 
         max_name = 0
-        for node in self.nodes.values():
-            max_name = max(max_name, len(node.name))
+        for name in nodes:
+            max_name = max(max_name, len(name))
 
         node_format = ' * {:<'+ str(max_name) +'} -> {}'
 
-        for node in sorted(self.nodes.values()):
-            edges.append(node_format.format(node.name, ', '.join(sorted(node.edges)) or '(None)'))
+        for name in nodes:
+            edges.append(node_format.format(name, ', '.join(sorted(self.nodes[name.replace('~', '')].edges)) or '(None)'))
 
-        return '{} {}: {}\n{}'.format(self.__class__.__name__, self.name, nodes, '\n'.join(edges))
+        return '{} {}: {}\n{}'.format(self.__class__.__name__, self.name, _nodes, '\n'.join(edges))
 
     @property
     def roots(self):
