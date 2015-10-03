@@ -55,10 +55,20 @@ class Graph(object):
     def __init__(self, name=None):
         self.name = name or 'auto-{}'.format(uuid4().hex)
         self.nodes = {}
+        self._non_root = set()
 
     def __str__(self):
-        nodes = ', '.join(node.name for node in sorted(self.nodes.values()))
+        roots = self.roots
         edges = []
+        nodes = []
+
+        for node in sorted(self.nodes.values()):
+            name = node.name
+            if name in roots:
+                name = '~{}'.format(name)
+            nodes.append(name)
+
+        nodes = ', '.join(nodes)
 
         max_name = 0
         for node in self.nodes.values():
@@ -71,14 +81,26 @@ class Graph(object):
 
         return '{} {}: {}\n{}'.format(self.__class__.__name__, self.name, nodes, '\n'.join(edges))
 
+    @property
+    def roots(self):
+        """ All nodes that have no parents.
+        """
+        return sorted(set(self.nodes) - self._non_root)
+
     def add_node(self, name, data=''):
+        """ Adds a new node by name and opaque data it contains.
+        """
         self.nodes[name] = Node(name, data)
 
     @validate_from_to
     def add_edge(self, from_, to):
         """ Adds a connection between from_ and to nodes.
         """
+        # Add an edge
         self.nodes[from_].add_edge(to)
+
+        # So that we know 'to' is not one of roots
+        self._non_root.add(to)
 
         # Result OK
         return True
@@ -92,6 +114,7 @@ class Graph(object):
 if __name__ == '__main__':
     g = Graph()
     g.add_node('new')
+    g.add_node('returned')
     g.add_node('submitted')
     g.add_node('ready')
     g.add_node('sent_to_client')
@@ -100,6 +123,7 @@ if __name__ == '__main__':
     g.add_node('updated')
 
     g.add_edge('new', 'submitted')
+    g.add_edge('returned', 'submitted')
     g.add_edge('submitted', 'ready')
     g.add_edge('ready', 'sent_to_client')
     g.add_edge('sent_to_client', 'client_confirmed')
