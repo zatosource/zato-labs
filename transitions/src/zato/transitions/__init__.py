@@ -18,8 +18,8 @@ def validate_from_to(func):
         for node in (from_, to):
             if node not in self.nodes:
                 return AddEdgeResult(False, ERROR.NO_SUCH_NODE, node)
-        return True
-    return func
+        return func(self, from_, to)
+    return _inner
 
 class AddEdgeResult(object):
     """ A boolean result of adding an edge between nodes. Includes error code if the operation failed.

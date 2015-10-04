@@ -132,7 +132,7 @@ class GraphTestCase(TestCase):
         self.assertTrue(new in self.g.nodes)
         self.assertTrue(new in self.g.roots) # Because no edge leads to it
 
-    def test_add_edge_ok(self):
+    def test_add_edge(self):
         name1, name2, name3, name4, name5 = rand_string(5)
 
         self.g.add_node(name1)
@@ -140,17 +140,21 @@ class GraphTestCase(TestCase):
         self.g.add_node(name3)
         self.g.add_node(name4)
 
-        self.g.add_edge(name1, name2)
-        self.g.add_edge(name2, name3)
-        self.g.add_edge(name2, name4)
-        self.g.add_edge(name3, name5)
-        self.g.add_edge(name4, name5)
+        self.assertTrue(self.g.add_edge(name1, name2))
+        self.assertTrue(self.g.add_edge(name2, name3))
+        self.assertTrue(self.g.add_edge(name2, name4))
+
+        # name5 has not been added above
+        self.assertFalse(self.g.add_edge(name3, name5))
+        self.assertFalse(self.g.add_edge(name4, name5))
 
         self.assertTrue(name2 in self.g.nodes[name1].edges)
         self.assertTrue(name3 in self.g.nodes[name2].edges)
         self.assertTrue(name4 in self.g.nodes[name2].edges)
-        self.assertTrue(name5 in self.g.nodes[name3].edges)
-        self.assertTrue(name5 in self.g.nodes[name4].edges)
+
+        # name5 has not been added above
+        self.assertFalse(name5 in self.g.nodes[name3].edges)
+        self.assertFalse(name5 in self.g.nodes[name4].edges)
 
         self.assertTrue(name1 in self.g.roots) # Because no edge leads to it
 
@@ -166,8 +170,8 @@ class GraphTestCase(TestCase):
         self.g.add_edge(name1, name2)
         self.g.add_edge(name2, name3)
         self.g.add_edge(name2, name4)
-        self.g.add_edge(name3, name5)
-        self.g.add_edge(name4, name5)
+        self.assertTrue(self.g.add_edge(name3, name5))
+        self.assertTrue(self.g.add_edge(name4, name5))
 
         self.assertTrue(self.g.has_edge(name1, name2))
         self.assertTrue(self.g.has_edge(name2, name3))
@@ -190,8 +194,26 @@ class GraphTestCase(TestCase):
         self.g.add_node(name2)
         self.g.add_node(name3)
 
-        self.g.add_edge(name1, name2)
-        self.g.add_edge(name2, name3)
-        self.g.add_edge(name2, name4)
-        self.g.add_edge(name3, name5)
-        self.g.add_edge(name4, name5)
+        self.assertTrue(self.g.add_edge(name1, name2))
+        self.assertTrue(self.g.add_edge(name2, name3))
+
+        result24 = self.g.add_edge(name2, name4)
+        result35 = self.g.add_edge(name3, name5)
+        result45 = self.g.add_edge(name4, name5)
+
+        self.assertFalse(result24)
+        self.assertFalse(result35)
+        self.assertFalse(result45)
+
+        self.assertFalse(result24.is_ok)
+        self.assertFalse(result35.is_ok)
+        self.assertFalse(result45.is_ok)
+
+        self.assertEquals(result24.error_code, ERROR.NO_SUCH_NODE)
+        self.assertEquals(result24.details, name4)
+
+        self.assertEquals(result35.error_code, ERROR.NO_SUCH_NODE)
+        self.assertEquals(result35.details, name5)
+
+        self.assertEquals(result45.error_code, ERROR.NO_SUCH_NODE)
+        self.assertEquals(result45.details, name4)
