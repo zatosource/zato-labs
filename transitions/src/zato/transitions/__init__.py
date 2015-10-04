@@ -2,6 +2,9 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
+# Part of Zato - Open-Source ESB, SOA, REST, APIs and Cloud Integrations in Python
+# https://zato.io
+
 # stdlib
 from uuid import uuid4
 
@@ -26,13 +29,13 @@ class AddEdgeResult(object):
         self.error_code = error_code
         self.details = details
 
-    def __bool__(self):
+    def __nonzero__(self):
         return self.is_ok
 
 class Node(object):
     """ An individual node in a graph.
     """
-    def __init__(self, name, data):
+    def __init__(self, name, data=None):
         self.name = name
         self.data = data
         self.edges = set()
@@ -41,7 +44,7 @@ class Node(object):
         return cmp(self.name, other.name)
 
     def __str__(self):
-        return 'Node: {}'.format(self.name)
+        return '{}: {}'.format(self.__class__.__name__, self.name)
 
     def add_edge(self, to):
         self.edges.add(to)
@@ -56,6 +59,7 @@ class Graph(object):
         self.name = name or 'auto-{}'.format(uuid4().hex)
         self.nodes = {}
         self._non_root = set()
+        self._roots = None
 
     def __str__(self):
         roots = self.roots
@@ -93,7 +97,9 @@ class Graph(object):
     def roots(self):
         """ All nodes that have no parents.
         """
-        return sorted(set(self.nodes) - self._non_root)
+        if not self._roots:
+            self._roots = sorted(set(self.nodes) - self._non_root)
+        return self._roots
 
     def add_node(self, name, data=''):
         """ Adds a new node by name and opaque data it contains.
@@ -107,7 +113,7 @@ class Graph(object):
         # Add an edge
         self.nodes[from_].add_edge(to)
 
-        # So that we know 'to' is not one of roots
+        # So that we know 'to' is not one of roots seeing as at least one node leads to it
         self._non_root.add(to)
 
         # Result OK
@@ -120,7 +126,7 @@ class Graph(object):
         return self.nodes[from_].has_edge(to)
 
 if __name__ == '__main__':
-    g = Graph()
+    g = Graph('Orders')
     g.add_node('new')
     g.add_node('returned')
     g.add_node('submitted')

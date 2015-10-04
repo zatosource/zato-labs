@@ -37,7 +37,7 @@ setup(
       package_dir = {'':b'src'},
       packages = find_packages(b'src'),
 
-      namespace_packages = [b'zato_transitions'],
+      namespace_packages = [b'zato'],
       install_requires = parse_requirements(
           os.path.join(os.path.dirname(os.path.realpath(__file__)), 'requirements.txt')),
 

@@ -21,6 +21,6 @@ clean:
 
 test:
 	$(MAKE) install
-	$(BIN_DIR)/nosetests $(CURDIR)/test/zato_transitions --with-coverage --cover-package=zato_transitions --nocapture
-	$(BIN_DIR)/flake8 $(CURDIR)/src/zato_transitions --count
-	$(BIN_DIR)/flake8 $(CURDIR)/test/zato_transitions --count
+	$(BIN_DIR)/nosetests $(CURDIR)/test/zato/transitions --with-coverage --cover-package=zato.transitions --nocapture
+	$(BIN_DIR)/flake8 $(CURDIR)/src/zato/transitions --count
+	$(BIN_DIR)/flake8 $(CURDIR)/test/zato/transitions --count
