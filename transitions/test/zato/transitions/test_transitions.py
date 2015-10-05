@@ -10,7 +10,7 @@ from unittest import TestCase
 from uuid import uuid4
 
 # Zato
-from zato.transitions import AddEdgeResult, ERROR, Graph, Node
+from zato.transitions import AddEdgeResult, CONSTANTS, Graph, Node
 
 def rand_string(count=1):
     if count == 1:
@@ -104,7 +104,7 @@ class GraphTestCase(TestCase):
         self.g.add_edge('updated', 'ready')
 
     def test__str__(self):
-        expected = """Graph Orders: ~new, ~returned, client_confirmed, client_rejected, ready, sent_to_client, submitted, updated
+        expected = """Graph Orders v1: ~new, ~returned, client_confirmed, client_rejected, ready, sent_to_client, submitted, updated
  * ~new             -> submitted
  * ~returned        -> submitted
  * client_confirmed -> (None)
@@ -209,11 +209,11 @@ class GraphTestCase(TestCase):
         self.assertFalse(result35.is_ok)
         self.assertFalse(result45.is_ok)
 
-        self.assertEquals(result24.error_code, ERROR.NO_SUCH_NODE)
+        self.assertEquals(result24.error_code, CONSTANTS.NO_SUCH_NODE)
         self.assertEquals(result24.details, name4)
 
-        self.assertEquals(result35.error_code, ERROR.NO_SUCH_NODE)
+        self.assertEquals(result35.error_code, CONSTANTS.NO_SUCH_NODE)
         self.assertEquals(result35.details, name5)
 
-        self.assertEquals(result45.error_code, ERROR.NO_SUCH_NODE)
+        self.assertEquals(result45.error_code, CONSTANTS.NO_SUCH_NODE)
         self.assertEquals(result45.details, name4)

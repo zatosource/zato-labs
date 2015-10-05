@@ -14,7 +14,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import os
 from setuptools import setup, find_packages
 
-version = '1.0'
+version = '0.1a1'
 
 LONG_DESCRIPTION = ''
 
