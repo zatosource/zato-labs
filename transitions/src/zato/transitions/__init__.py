@@ -24,7 +24,6 @@ basicConfig()
 
 class CONSTANTS:
     NO_SUCH_NODE = 'NO_SUCH_NODE'
-    NO_SUCH_OBJECT = 'NO_SUCH_OBJECT'
     DEFAULT_GRAPH_VERSION = 1
 
 # ################################################################################################################################
@@ -305,7 +304,7 @@ class StateMachine(object):
     def get_object_tag(object_type, object_id):
         return '{}.{}'.format(object_type, object_id)
 
-    def get_transition_info(self, state_current, state_new, object_tag, graph_tag, server_ctx, user_ctx):
+    def get_transition_info(self, state_current, state_new, object_tag, graph_tag, server_ctx, user_ctx, is_forced):
         return {
             'state_previous': state_current,
             'state_current': state_new,
@@ -313,7 +312,8 @@ class StateMachine(object):
             'graph_tag': graph_tag,
             'transition_ts_utc': datetime.utcnow().isoformat(),
             'server_ctx': server_ctx,
-            'user_ctx': user_ctx
+            'user_ctx': user_ctx,
+            'is_forced': is_forced
         }
 
     def can_transit(self, object_tag, state_new, graph_tag):
@@ -340,20 +340,34 @@ class StateMachine(object):
                 msg = 'No transition found from `{}` to `{}` for `{}` in `{}`'.format(
                     state_current, state_new, object_tag, graph_tag)
                 logger.warn(msg)
-                return False, msg, None
+                return False, msg, state_current
 
         return True, '', state_current
 
-    def transit(self, object_tag, state_new, graph_tag, server_ctx, user_ctx=None):
+    def transit(self, object_tag, state_new, graph_tag, server_ctx, user_ctx=None, force=False):
 
         # Make sure this is a valid transition
         can_transit, reason, state_current = self.can_transit(object_tag, state_new, graph_tag)
         if not can_transit:
-            raise StateError(reason)
+
+            # Users may have valid reasons to force the new state however we still want
+            # to ensure that the new state actually belongs to the graph.
+            if not force:
+                raise StateError(reason)
+            else:
+                if state_new not in self.config[graph_tag].graph.nodes:
+                    msg = 'Cannot force transition from `{}` to `{}` for `{}` in `{}`'.format(
+                        state_current, state_new, object_tag, graph_tag)
+                    logger.warn(msg)
+                    raise StateError(msg)
 
         self.backend.set_current_state_info(
             object_tag, graph_tag, dumps(self.get_transition_info(
-                state_current, state_new, object_tag, graph_tag, server_ctx, user_ctx)))
+                state_current, state_new, object_tag, graph_tag, server_ctx, user_ctx, force)))
+
+    def mass_transit(self, items):
+        for item in items:
+            self.transit(*item)
 
     def get_current_state_info(self, object_tag, graph_tag):
         return self.backend.get_current_state_info(object_tag, graph_tag)
@@ -425,6 +439,7 @@ if __name__ == '__main__':
     sm.can_transit(object_tag, 'new', graph_tag)
     sm.transit(object_tag, 'new', graph_tag, server_ctx)
     sm.transit(object_tag, 'submitted', graph_tag, server_ctx)
+    sm.transit(object_tag, 'submitted', graph_tag, server_ctx, force=True)
 
     print()
     print('Current:', sm.get_current_state_info(object_tag, graph_tag))
