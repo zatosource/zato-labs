@@ -11,6 +11,8 @@ from json import dumps, loads
 from logging import basicConfig, getLogger
 from uuid import uuid4
 
+from bunch import Bunch
+
 # ConfigObj
 from configobj import ConfigObj
 
@@ -28,7 +30,7 @@ class CONSTANTS:
 
 # ################################################################################################################################
 
-class StateError(Exception):
+class TransitionError(Exception):
     pass
 
 # ################################################################################################################################
@@ -80,11 +82,11 @@ class Node(object):
 
 # ################################################################################################################################
 
-class Graph(object):
+class Definition(object):
     """ A graph of nodes and edges connecting them. Edges can be cyclic and graphs can have more than one root.
     """
     def __init__(self, name=None, version=CONSTANTS.DEFAULT_GRAPH_VERSION):
-        self.name = name.replace(' ', '.').strip() if name else 'auto-{}'.format(uuid4().hex)
+        self.name = Definition.get_name(name)
         self.version = version
         self.tag = self.get_tag(self.name, self.version)
         self.nodes = {}
@@ -127,6 +129,14 @@ class Graph(object):
     def get_tag(name, version):
         return '{}.v{}'.format(name, version)
 
+    @staticmethod
+    def format_name(name):
+        return name.replace(' ', '.').strip() if name else ''
+
+    @staticmethod
+    def get_name(name):
+        return Definition.format_name(name) or 'auto-{}'.format(uuid4().hex)
+
     @property
     def roots(self):
         """ All nodes that have no parents.
@@ -165,25 +175,25 @@ class ConfigItem(object):
     """ An individual definition of transitions.
     """
     def __init__(self):
-        self.graph = Graph()
+        self.def_ = Definition()
         self.objects = []
         self.force_stop = []
 
     def _add_nodes_edges(self, config, add_nodes=True):
-        for from_, to in config[self.graph.name].items():
+        for from_, to in config[self.def_.name].items():
             if not isinstance(to, list):
                 to = [to]
 
             if add_nodes:
-                self.graph.add_node(from_)
+                self.def_.add_node(from_)
                 for to_item in to:
-                    self.graph.add_node(to_item)
+                    self.def_.add_node(to_item)
             else:
                 for to_item in to:
-                    self.graph.add_edge(from_, to_item)
+                    self.def_.add_edge(from_, to_item)
 
     def _extend_list(self, config, attr):
-        item = config[self.graph.name].pop(attr, [])
+        item = config[self.def_.name].pop(attr, [])
         if not isinstance(item, list):
             item = [item]
         getattr(self, attr).extend(item)
@@ -194,7 +204,10 @@ class ConfigItem(object):
         config = ConfigObj(data.splitlines())
 
         # There will be exactly one key
-        self.graph.name = config.keys()[0]
+        orig_key = config.keys()[0]
+        def_name = Definition.get_name(orig_key)
+        config[def_name] = config[orig_key]
+        self.def_.name = def_name
 
         # Extend attributes that may either strings or lists in config
         self._extend_list(config, 'objects')
@@ -205,42 +218,37 @@ class ConfigItem(object):
         self._add_nodes_edges(config, False)
 
         # Version is optional
-        self.graph.version = config[self.graph.name].get('version', 1)
+        self.def_.version = config[self.def_.name].get('version', 1)
 
         # Set correct tag
-        self.graph.tag = Graph.get_tag(self.graph.name, self.graph.version)
+        self.def_.tag = Definition.get_tag(self.def_.name, self.def_.version)
 
 # ################################################################################################################################
 
 class StateBackendBase(object):
     """ An abstract object defining the API for state backend implementations to follow.
     """
-    def add_graph(self, graph_name, graph_version):
-        """ Adds a graph in a given version and returns its ID.
+    def rename_def(self, old_def_name, old_def_version, new_def_name, new_def_version):
+        """ Renames a definition in place, possibly including its version.
         """
         raise NotImplementedError('Must be implemented in subclasses')
 
-    def rename_graph(self, old_graph_name, old_graph_version, new_graph_name, new_graph_version):
-        """ Renames a graph in place, possibly including its version.
-        """
-        raise NotImplementedError('Must be implemented in subclasses')
-
-    def get_current_state_info(self, object_tag, graph_tag):
+    def get_current_state_info(self, object_tag, def_tag):
         """ Returns information on the current state of an object in a graph of transitions.
         """
         raise NotImplementedError('Must be implemented in subclasses')
 
-    def get_history(self, object_tag, graph_tag):
+    def get_history(self, object_tag, def_tag):
         """ Returns history of transitions for a given object.
         """
         raise NotImplementedError('Must be implemented in subclasses')
 
-    def set_current_state_info(self, object_tag, graph_tag, state_info):
+    def set_current_state_info(self, object_tag, def_tag, state_info):
         """ Sets new state of an object.
         """
         raise NotImplementedError('Must be implemented in subclasses')
 
-    def set_ctx(self, object_type, object_id, graph_tag, transition_id, ctx=None):
+    def set_ctx(self, object_type, object_id, def_tag, transition_id, ctx=None):
         """ Attaches arbitrary context data to a transition.
         """
         raise NotImplementedError('Must be implemented in subclasses')
@@ -248,42 +256,32 @@ class StateBackendBase(object):
 # ################################################################################################################################
 
 class RedisBackend(StateBackendBase):
-    KEY_GRAPH_ATTRS_TO_ID = 'zato:trans:graph:tag-to-id'
     PATTERN_STATE_CURRENT = 'zato:trans:state:current:{}'
     PATTERN_STATE_HISTORY = 'zato:trans:state:history:{}'
 
     def __init__(self, conn):
         self.conn = conn
 
-    def add_graph(self, graph_tag):
-        graph_id = self.conn.hget(self.KEY_GRAPH_ATTRS_TO_ID, graph_tag)
-
-        if not graph_id:
-            graph_id = uuid4().hex
-            self.conn.hset(self.KEY_GRAPH_ATTRS_TO_ID, graph_tag, graph_id)
-
-        return graph_id
-
-    def get_current_state_info(self, object_tag, graph_tag):
-        data = self.conn.hget(self.PATTERN_STATE_CURRENT.format(graph_tag), object_tag)
+    def get_current_state_info(self, object_tag, def_tag):
+        data = self.conn.hget(self.PATTERN_STATE_CURRENT.format(def_tag), object_tag)
         if data:
             return loads(data)
 
-    def get_history(self, object_tag, graph_tag):
-        history = self.conn.hget(self.PATTERN_STATE_HISTORY.format(graph_tag), object_tag)
+    def get_history(self, object_tag, def_tag):
+        history = self.conn.hget(self.PATTERN_STATE_HISTORY.format(def_tag), object_tag)
         return loads(history) if history else []
 
-    def set_current_state_info(self, object_tag, graph_tag, state_info):
+    def set_current_state_info(self, object_tag, def_tag, state_info):
 
         # Set the new state object is in ..
-        self.conn.hset(self.PATTERN_STATE_CURRENT.format(graph_tag), object_tag, state_info)
+        self.conn.hset(self.PATTERN_STATE_CURRENT.format(def_tag), object_tag, state_info)
 
         # .. and append it to the object's history of transitions.
-        history = self.get_history(object_tag, graph_tag)
+        history = self.get_history(object_tag, def_tag)
         history.append(state_info)
         history = dumps(history)
 
-        self.conn.hset(self.PATTERN_STATE_HISTORY.format(graph_tag), object_tag, history)
+        self.conn.hset(self.PATTERN_STATE_HISTORY.format(def_tag), object_tag, history)
 
 # ################################################################################################################################
 
@@ -291,115 +289,183 @@ class StateMachine(object):
     def __init__(self, config=None, backend=None):
         self.config = config
         self.backend = backend
-        self.graph_ids = {}
+        self.object_to_def = {}
 
         # Prepares database and run-time structures
         self.set_up()
 
     def set_up(self):
-        for graph_tag in self.config:
-            self.graph_ids[graph_tag] = self.backend.add_graph(graph_tag)
+        # Map object types to definitions they are contained in.
+        for def_tag, config_item in self.config.items():
+            for object_type in config_item.objects:
+                defs = self.object_to_def.setdefault(object_type, [])
+                defs.append(def_tag)
 
     @staticmethod
     def get_object_tag(object_type, object_id):
         return '{}.{}'.format(object_type, object_id)
 
-    def get_transition_info(self, state_current, state_new, object_tag, graph_tag, server_ctx, user_ctx, is_forced):
+# ################################################################################################################################
+
+    def get_transition_info(self, state_current, state_new, object_tag, def_tag, server_ctx, user_ctx, is_forced):
         return {
             'state_previous': state_current,
             'state_current': state_new,
             'object_tag': object_tag,
-            'graph_tag': graph_tag,
+            'def_tag': def_tag,
             'transition_ts_utc': datetime.utcnow().isoformat(),
             'server_ctx': server_ctx,
             'user_ctx': user_ctx,
             'is_forced': is_forced
         }
 
-    def can_transit(self, object_tag, state_new, graph_tag):
+# ################################################################################################################################
+
+    def can_transit(self, object_tag, state_new, def_tag, force=False):
 
         # Obtain graph object's config
-        config = self.config[graph_tag]
+        config = self.config[def_tag]
 
         # Find the current state of this object in backend
-        state_current_info = self.backend.get_current_state_info(object_tag, config.graph.tag)
+        state_current_info = self.backend.get_current_state_info(object_tag, config.def_.tag)
+        state_current = state_current_info['state_current'] if state_current_info else None
+
+        # Could be a a forced transition so if state_new exists at all in the definition, this is all good.
+        if force and state_new in config.def_.nodes:
+            return True, '', state_current
 
         # If not found and it's not a root node, just return False and reason - we cannot work with unknown objects
-        if not state_current_info and state_new not in config.graph.roots:
+        if not state_current_info and state_new not in config.def_.roots:
             msg = 'Object `{}` of `{}` not found and target state `{}` is not one of roots `{}`'.format(
-                object_tag, config.graph.tag, state_new, ', '.join(config.graph.roots))
+                object_tag, config.def_.tag, state_new, ', '.join(config.def_.roots))
             logger.warn(msg)
             return False, msg, None
-
-        state_current = state_current_info['state_current'] if state_current_info else None
 
         # If there is no current state it means we want to transit to one of roots so the check below is skipped.
         if state_current:
 
-            if not config.graph.has_edge(state_current, state_new):
+            if not config.def_.has_edge(state_current, state_new):
                 msg = 'No transition found from `{}` to `{}` for `{}` in `{}`'.format(
-                    state_current, state_new, object_tag, graph_tag)
+                    state_current, state_new, object_tag, def_tag)
                 logger.warn(msg)
                 return False, msg, state_current
 
         return True, '', state_current
 
-    def transit(self, object_tag, state_new, graph_tag, server_ctx, user_ctx=None, force=False):
+# ################################################################################################################################
+
+    def transit(self, object_tag, state_new, def_tag, server_ctx, user_ctx=None, force=False):
 
         # Make sure this is a valid transition
-        can_transit, reason, state_current = self.can_transit(object_tag, state_new, graph_tag)
+        can_transit, reason, state_current = self.can_transit(object_tag, state_new, def_tag, force)
         if not can_transit:
-
-            # Users may have valid reasons to force the new state however we still want
-            # to ensure that the new state actually belongs to the graph.
-            if not force:
-                raise StateError(reason)
-            else:
-                if state_new not in self.config[graph_tag].graph.nodes:
-                    msg = 'Cannot force transition from `{}` to `{}` for `{}` in `{}`'.format(
-                        state_current, state_new, object_tag, graph_tag)
-                    logger.warn(msg)
-                    raise StateError(msg)
+            raise TransitionError(reason)
 
         self.backend.set_current_state_info(
-            object_tag, graph_tag, dumps(self.get_transition_info(
-                state_current, state_new, object_tag, graph_tag, server_ctx, user_ctx, force)))
+            object_tag, def_tag, dumps(self.get_transition_info(
+                state_current, state_new, object_tag, def_tag, server_ctx, user_ctx, force)))
+
+# ################################################################################################################################
 
     def mass_transit(self, items):
         for item in items:
             self.transit(*item)
 
-    def get_current_state_info(self, object_tag, graph_tag):
-        return self.backend.get_current_state_info(object_tag, graph_tag)
+# ################################################################################################################################
 
-    def get_history(self, object_tag, graph_tag):
-        return [loads(elem) for elem in self.backend.get_history(object_tag, graph_tag)]
+    def get_current_state_info(self, object_tag, def_tag):
+        return self.backend.get_current_state_info(object_tag, def_tag)
+
+# ################################################################################################################################
+
+    def get_history(self, object_tag, def_tag):
+        return [loads(elem) for elem in self.backend.get_history(object_tag, def_tag)]
+
+# ################################################################################################################################
+
+class TransitionInfo(object):
+    def __init__(self, ctx):
+        self.ctx = Bunch()
+
+# ################################################################################################################################
+
+class transition_to(object):
+    """ A context manager to encompass validation and saving of states. Called transition_to instead of TransitionTo
+    because eventually it will be available in Zato services as 'self.transitions.to'.
+    """
+    def __init__(self, state_machine, object_type, object_id, state_new, def_name=None,
+            def_version=None, user_ctx=None, force=False):
+        self.state_machine = state_machine
+        self.object_type = object_type
+        self.object_id = object_id
+        self.state_new = state_new
+        self.def_name = def_name
+        self.def_version = def_version
+        self.force = force
+        self.transition_info = TransitionInfo(user_ctx)
+        self.object_tag = StateMachine.get_object_tag(self.object_type, self.object_id)
+        self.def_tag = '' # We cannot be certain what it is yet, we may not have definition's name/version yet
+
+    def __enter__(self):
+
+        if not self.def_name:
+
+            if self.object_type not in self.state_machine.object_to_def:
+                msg = 'Unknown object type `{}` (id:`{}`, state_new:`{}`, def_name:`{}`, def_version:`{}`)'.format(
+                    self.object_type, self.object_id, self.state_new, self.def_name, self.def_version)
+                logger.warn(msg)
+                raise TransitionError(msg)
+
+            def_tag = self.state_machine.object_to_def[self.object_type]
+
+            if len(def_tag) > 1:
+                msg = 'Ambiguous input. Object `{}` maps to more than one definition `{}` '\
+                    '(id:`{}`, state_new:`{}`, def_name:`{}`, def_version:`{}`)'.format(
+                    self.object_type, ', '.join(def_tag), self.object_id, self.state_new, self.def_name, self.def_version)
+                logger.warn(msg)
+                raise TransitionError(msg)
+
+            # Ok, we've got it now after ensuring there is only one definition for that object type
+            self.def_tag = def_tag[0]
+
+        can_transit, reason, _ = self.state_machine.can_transit(self.object_tag, self.state_new, self.def_tag, self.force)
+        if not can_transit:
+            raise TransitionError(reason)
+
+        return self.transition_info
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if not exc_type:
+            # TODO: Use server_ctx in .transit
+            self.state_machine.transit(
+                self.object_tag, self.state_new, self.def_tag, None, self.transition_info.ctx, self.force)
+            return True
 
 # ################################################################################################################################
 
 if __name__ == '__main__':
-    g = Graph('Orders')
-    g.add_node('new')
-    g.add_node('returned')
-    g.add_node('submitted')
-    g.add_node('ready')
-    g.add_node('sent_to_client')
-    g.add_node('client_confirmed')
-    g.add_node('client_rejected')
-    g.add_node('updated')
+    d = Definition('Orders')
+    d.add_node('new')
+    d.add_node('returned')
+    d.add_node('submitted')
+    d.add_node('ready')
+    d.add_node('sent_to_client')
+    d.add_node('client_confirmed')
+    d.add_node('client_rejected')
+    d.add_node('updated')
 
-    g.add_edge('new', 'submitted')
-    g.add_edge('returned', 'submitted')
-    g.add_edge('submitted', 'ready')
-    g.add_edge('ready', 'sent_to_client')
-    g.add_edge('sent_to_client', 'client_confirmed')
-    g.add_edge('sent_to_client', 'client_rejected')
-    g.add_edge('client_rejected', 'updated')
-    g.add_edge('updated', 'ready')
+    d.add_edge('new', 'submitted')
+    d.add_edge('returned', 'submitted')
+    d.add_edge('submitted', 'ready')
+    d.add_edge('ready', 'sent_to_client')
+    d.add_edge('sent_to_client', 'client_confirmed')
+    d.add_edge('sent_to_client', 'client_rejected')
+    d.add_edge('client_rejected', 'updated')
+    d.add_edge('updated', 'ready')
 
     # print(g)
 
-    config = """
+    config1 = """
     [Orders]
     objects=order, priority.order
     force_stop=canceled
@@ -412,10 +478,26 @@ if __name__ == '__main__':
     updated=ready
     """.strip()
 
-    ci = ConfigItem()
-    ci.parse_config(config)
+    config2 = """
+    [Orders Old]
+    objects=order.old, priority.order
+    force_stop=canceled
+    new=submitted
+    returned=submitted
+    submitted=ready
+    ready=sent_to_client
+    sent_to_client=client_confirmed, client_rejected
+    client_rejected=updated
+    updated=ready
+    """.strip()
 
-    # print(ci.graph)
+    ci1 = ConfigItem()
+    ci1.parse_config(config1)
+
+    ci2 = ConfigItem()
+    ci2.parse_config(config2)
+
+    # print(ci1.graph)
 
     # Imported here because in runtime we expect it to be provided
     # as an input parameter to state machines, i.e. backends won't
@@ -425,29 +507,40 @@ if __name__ == '__main__':
     conn = StrictRedis()
 
     config = {
-        ci.graph.tag: ci
+        ci1.def_.tag: ci1,
+        ci2.def_.tag: ci2
     }
 
     order_id = uuid4().hex
 
     object_tag = StateMachine.get_object_tag('order', order_id)
-    graph_tag = Graph.get_tag('Orders', '1')
+    def_tag = Definition.get_tag('Orders', '1')
 
     server_ctx = 'server-{}:{}'.format(uuid4().hex, datetime.utcnow().isoformat())
 
     sm = StateMachine(config, RedisBackend(conn))
-    sm.can_transit(object_tag, 'new', graph_tag)
-    sm.transit(object_tag, 'new', graph_tag, server_ctx)
-    sm.transit(object_tag, 'submitted', graph_tag, server_ctx)
-    sm.transit(object_tag, 'submitted', graph_tag, server_ctx, force=True)
+
+    with transition_to(sm, 'order', order_id, 'new') as t:
+        t.ctx = '123'
+        # z
+
+    print(t.ctx)
+
+    '''
+    sm = StateMachine(config, RedisBackend(conn))
+    sm.can_transit(object_tag, 'new', def_tag)
+    sm.transit(object_tag, 'new', def_tag, server_ctx)
+    sm.transit(object_tag, 'submitted', def_tag, server_ctx)
+    sm.transit(object_tag, 'submitted', def_tag, server_ctx, force=True)
 
     print()
-    print('Current:', sm.get_current_state_info(object_tag, graph_tag))
+    print('Current:', sm.get_current_state_info(object_tag, def_tag))
     print()
     print('History:')
-    for item in sm.get_history(object_tag, graph_tag):
+    for item in sm.get_history(object_tag, def_tag):
         print(' * ', item)
         print()
     print()
+    '''
 
 # ################################################################################################################################

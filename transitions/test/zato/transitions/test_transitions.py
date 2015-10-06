@@ -10,7 +10,7 @@ from unittest import TestCase
 from uuid import uuid4
 
 # Zato
-from zato.transitions import AddEdgeResult, CONSTANTS, Graph, Node
+from zato.transitions import AddEdgeResult, CONSTANTS, Definition, Node
 
 def rand_string(count=1):
     if count == 1:
@@ -80,31 +80,31 @@ class NodeTestCase(TestCase):
         self.assertTrue(n1.has_edge(n2))
         self.assertTrue(n1.has_edge(n3))
 
-class GraphTestCase(TestCase):
+class DefinitionTestCase(TestCase):
 
     def setUp(self):
 
-        self.g = Graph('Orders')
-        self.g.add_node('new')
-        self.g.add_node('returned')
-        self.g.add_node('submitted')
-        self.g.add_node('ready')
-        self.g.add_node('sent_to_client')
-        self.g.add_node('client_confirmed')
-        self.g.add_node('client_rejected')
-        self.g.add_node('updated')
+        self.d = Definition('Orders')
+        self.d.add_node('new')
+        self.d.add_node('returned')
+        self.d.add_node('submitted')
+        self.d.add_node('ready')
+        self.d.add_node('sent_to_client')
+        self.d.add_node('client_confirmed')
+        self.d.add_node('client_rejected')
+        self.d.add_node('updated')
 
-        self.g.add_edge('new', 'submitted')
-        self.g.add_edge('returned', 'submitted')
-        self.g.add_edge('submitted', 'ready')
-        self.g.add_edge('ready', 'sent_to_client')
-        self.g.add_edge('sent_to_client', 'client_confirmed')
-        self.g.add_edge('sent_to_client', 'client_rejected')
-        self.g.add_edge('client_rejected', 'updated')
-        self.g.add_edge('updated', 'ready')
+        self.d.add_edge('new', 'submitted')
+        self.d.add_edge('returned', 'submitted')
+        self.d.add_edge('submitted', 'ready')
+        self.d.add_edge('ready', 'sent_to_client')
+        self.d.add_edge('sent_to_client', 'client_confirmed')
+        self.d.add_edge('sent_to_client', 'client_rejected')
+        self.d.add_edge('client_rejected', 'updated')
+        self.d.add_edge('updated', 'ready')
 
     def test__str__(self):
-        expected = """Graph Orders v1: ~new, ~returned, client_confirmed, client_rejected, ready, sent_to_client, submitted, updated
+        expected = """Definition Orders v1: ~new, ~returned, client_confirmed, client_rejected, ready, sent_to_client, submitted, updated
  * ~new             -> submitted
  * ~returned        -> submitted
  * client_confirmed -> (None)
@@ -113,93 +113,93 @@ class GraphTestCase(TestCase):
  * sent_to_client   -> client_confirmed, client_rejected
  * submitted        -> ready
  * updated          -> ready"""
-        self.assertEquals(str(self.g), expected)
+        self.assertEquals(str(self.d), expected)
 
     def test_get_roots(self):
-        self.assertListEqual(self.g.roots, ['new', 'returned'])
+        self.assertListEqual(self.d.roots, ['new', 'returned'])
 
     def test_add_node(self):
         default = ['new', 'returned', 'submitted', 'ready', 'sent_to_client', 'client_confirmed', 'client_rejected', 'updated']
 
-        self.assertEquals(len(self.g.nodes), len(default))
+        self.assertEquals(len(self.d.nodes), len(default))
         for name in default:
-            self.assertTrue(name in self.g.nodes)
+            self.assertTrue(name in self.d.nodes)
 
         new = rand_string()
-        self.g.add_node(new)
+        self.d.add_node(new)
 
-        self.assertEquals(len(self.g.nodes), len(default)+1)
-        self.assertTrue(new in self.g.nodes)
-        self.assertTrue(new in self.g.roots) # Because no edge leads to it
+        self.assertEquals(len(self.d.nodes), len(default)+1)
+        self.assertTrue(new in self.d.nodes)
+        self.assertTrue(new in self.d.roots) # Because no edge leads to it
 
     def test_add_edge(self):
         name1, name2, name3, name4, name5 = rand_string(5)
 
-        self.g.add_node(name1)
-        self.g.add_node(name2)
-        self.g.add_node(name3)
-        self.g.add_node(name4)
+        self.d.add_node(name1)
+        self.d.add_node(name2)
+        self.d.add_node(name3)
+        self.d.add_node(name4)
 
-        self.assertTrue(self.g.add_edge(name1, name2))
-        self.assertTrue(self.g.add_edge(name2, name3))
-        self.assertTrue(self.g.add_edge(name2, name4))
-
-        # name5 has not been added above
-        self.assertFalse(self.g.add_edge(name3, name5))
-        self.assertFalse(self.g.add_edge(name4, name5))
-
-        self.assertTrue(name2 in self.g.nodes[name1].edges)
-        self.assertTrue(name3 in self.g.nodes[name2].edges)
-        self.assertTrue(name4 in self.g.nodes[name2].edges)
+        self.assertTrue(self.d.add_edge(name1, name2))
+        self.assertTrue(self.d.add_edge(name2, name3))
+        self.assertTrue(self.d.add_edge(name2, name4))
 
         # name5 has not been added above
-        self.assertFalse(name5 in self.g.nodes[name3].edges)
-        self.assertFalse(name5 in self.g.nodes[name4].edges)
+        self.assertFalse(self.d.add_edge(name3, name5))
+        self.assertFalse(self.d.add_edge(name4, name5))
 
-        self.assertTrue(name1 in self.g.roots) # Because no edge leads to it
+        self.assertTrue(name2 in self.d.nodes[name1].edges)
+        self.assertTrue(name3 in self.d.nodes[name2].edges)
+        self.assertTrue(name4 in self.d.nodes[name2].edges)
+
+        # name5 has not been added above
+        self.assertFalse(name5 in self.d.nodes[name3].edges)
+        self.assertFalse(name5 in self.d.nodes[name4].edges)
+
+        self.assertTrue(name1 in self.d.roots) # Because no edge leads to it
 
     def test_has_edge_ok(self):
         name1, name2, name3, name4, name5 = rand_string(5)
 
-        self.g.add_node(name1)
-        self.g.add_node(name2)
-        self.g.add_node(name3)
-        self.g.add_node(name4)
-        self.g.add_node(name5)
+        self.d.add_node(name1)
+        self.d.add_node(name2)
+        self.d.add_node(name3)
+        self.d.add_node(name4)
+        self.d.add_node(name5)
 
-        self.g.add_edge(name1, name2)
-        self.g.add_edge(name2, name3)
-        self.g.add_edge(name2, name4)
-        self.assertTrue(self.g.add_edge(name3, name5))
-        self.assertTrue(self.g.add_edge(name4, name5))
+        self.d.add_edge(name1, name2)
+        self.d.add_edge(name2, name3)
+        self.d.add_edge(name2, name4)
+        self.assertTrue(self.d.add_edge(name3, name5))
+        self.assertTrue(self.d.add_edge(name4, name5))
 
-        self.assertTrue(self.g.has_edge(name1, name2))
-        self.assertTrue(self.g.has_edge(name2, name3))
-        self.assertTrue(self.g.has_edge(name2, name4))
-        self.assertTrue(self.g.has_edge(name3, name5))
-        self.assertTrue(self.g.has_edge(name4, name5))
+        self.assertTrue(self.d.has_edge(name1, name2))
+        self.assertTrue(self.d.has_edge(name2, name3))
+        self.assertTrue(self.d.has_edge(name2, name4))
+        self.assertTrue(self.d.has_edge(name3, name5))
+        self.assertTrue(self.d.has_edge(name4, name5))
 
         # Edges should not get established the other way around
-        self.assertFalse(self.g.has_edge(name2, name1))
-        self.assertFalse(self.g.has_edge(name3, name2))
-        self.assertFalse(self.g.has_edge(name4, name2))
-        self.assertFalse(self.g.has_edge(name5, name3))
-        self.assertFalse(self.g.has_edge(name5, name4))
+        self.assertFalse(self.d.has_edge(name2, name1))
+        self.assertFalse(self.d.has_edge(name3, name2))
+        self.assertFalse(self.d.has_edge(name4, name2))
+        self.assertFalse(self.d.has_edge(name5, name3))
+        self.assertFalse(self.d.has_edge(name5, name4))
 
     def test_has_edge_missing_nodes(self):
         name1, name2, name3, name4, name5 = rand_string(5)
 
         # We're adding only three nodes
-        self.g.add_node(name1)
-        self.g.add_node(name2)
-        self.g.add_node(name3)
+        self.d.add_node(name1)
+        self.d.add_node(name2)
+        self.d.add_node(name3)
 
-        self.assertTrue(self.g.add_edge(name1, name2))
-        self.assertTrue(self.g.add_edge(name2, name3))
+        self.assertTrue(self.d.add_edge(name1, name2))
+        self.assertTrue(self.d.add_edge(name2, name3))
 
-        result24 = self.g.add_edge(name2, name4)
-        result35 = self.g.add_edge(name3, name5)
-        result45 = self.g.add_edge(name4, name5)
+        result24 = self.d.add_edge(name2, name4)
+        result35 = self.d.add_edge(name3, name5)
+        result45 = self.d.add_edge(name4, name5)
 
         self.assertFalse(result24)
         self.assertFalse(result35)
