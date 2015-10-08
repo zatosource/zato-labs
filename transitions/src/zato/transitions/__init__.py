@@ -6,6 +6,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 # https://zato.io
 
 # stdlib
+from copy import deepcopy
 from datetime import datetime
 from json import dumps, loads
 from logging import basicConfig, getLogger
@@ -28,6 +29,7 @@ basicConfig()
 class CONSTANTS:
     NO_SUCH_NODE = 'NO_SUCH_NODE'
     DEFAULT_GRAPH_VERSION = 1
+    DEFINITION_PREFIX = 'biz_states_'
 
 # ################################################################################################################################
 
@@ -48,18 +50,22 @@ def validate_from_to(func):
 
 # ################################################################################################################################
 
-def setup_server_config(service):
-    config = {}
-    prefix = 'biz_states_'
+def yield_definitions(service):
     for name, data in service.server.user_config.user.items():
 
         # Pick up only our definitions ..
-        if name.startswith(prefix):
+        if name.startswith(CONSTANTS.DEFINITION_PREFIX):
+            yield name, data
 
-            # .. parse the definition and append to the state machine's config dict
-            item = ConfigItem()
-            item.parse_config_dict({name.replace(prefix, ''):data})
-            config[item.def_.tag] = item
+# ################################################################################################################################
+
+def setup_server_config(service):
+    config = {}
+    for name, data in yield_definitions(service):
+        # .. parse the definition and append to the state machine's config dict
+        item = ConfigItem()
+        item.parse_config_dict({name.replace(CONSTANTS.DEFINITION_PREFIX, ''):data})
+        config[item.def_.tag] = item
 
     service.server.user_ctx.zato_state_machine = StateMachine(config, RedisBackend(service.kvdb.conn))
 
@@ -217,6 +223,9 @@ class ConfigItem(object):
         getattr(self, attr).extend(item)
 
     def parse_config_dict(self, config):
+
+        # So that the original, possibly still kept in a service's self.user_config, is not modified
+        config = deepcopy(config)
 
         # There will be exactly one key
         orig_key = config.keys()[0]

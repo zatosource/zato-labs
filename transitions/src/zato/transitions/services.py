@@ -12,7 +12,7 @@ from json import dumps, loads
 from bunch import bunchify
 
 # zato-labs
-from zato_transitions import CONSTANTS, setup_server_config, StateMachine, transition_to
+from zato_transitions import CONSTANTS, setup_server_config, StateMachine, transition_to, yield_definitions
 
 # Zato
 from zato.server.service import AsIs, Bool, Service
@@ -131,6 +131,12 @@ class GetDefinitionList(Base):
     """ Returns all definition as JSON.
     """
     name = 'xzato.labs.bizstates.transition.get-definition'
+
+    def handle(self):
+        out = []
+        for name, data in yield_definitions(self):
+            out.append(name, data)
+        return dumps(out)
 
 # ################################################################################################################################
 
