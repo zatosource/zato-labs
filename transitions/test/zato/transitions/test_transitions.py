@@ -6,6 +6,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 # https://zato.io
 
 # stdlib
+from inspect import getargspec
 from json import dumps, loads
 from unittest import TestCase
 from uuid import uuid4
@@ -14,7 +15,7 @@ from uuid import uuid4
 from fakeredis import FakeRedis
 
 # Zato
-from zato.transitions import AddEdgeResult, ConfigItem, CONSTANTS, Definition, Node, RedisBackend
+from zato.transitions import AddEdgeResult, ConfigItem, CONSTANTS, Definition, Node, RedisBackend, StateBackendBase
 
 # ################################################################################################################################
 
@@ -32,7 +33,7 @@ def rand_string(count=1, as_json=False):
 # ################################################################################################################################
 
 class AddEdgeResultTestCase(TestCase):
-    def test_attrs(self):
+    def xtest_attrs(self):
 
         bools = [True, False]
         error_codes = rand_string(2)
@@ -50,7 +51,7 @@ class AddEdgeResultTestCase(TestCase):
 # ################################################################################################################################
 
 class NodeTestCase(TestCase):
-    def test_attrs(self):
+    def xtest_attrs(self):
         name, data = rand_string(2)
         n1 = Node(name, data)
         self.assertEquals(n1.name, name)
@@ -63,18 +64,18 @@ class NodeTestCase(TestCase):
         self.assertIsNone(n2.data)
         self.assertEquals(len(n2.edges), 0)
 
-    def test__cmp__(self):
+    def xtest__cmp__(self):
         n1 = Node('name1')
         n2 = Node('name2')
 
         # Compared by names, lexicographically
         self.assertLess(n1, n2)
 
-    def test__str__(self):
+    def xtest__str__(self):
         n1 = Node('name1')
         self.assertEquals(str(n1), 'Node: name1')
 
-    def test_add_edge(self):
+    def xtest_add_edge(self):
         n1 = Node(rand_string())
         n2, n3 = rand_string(2)
 
@@ -85,7 +86,7 @@ class NodeTestCase(TestCase):
         self.assertTrue(n2 in n1.edges)
         self.assertTrue(n3 in n1.edges)
 
-    def test_has_edge(self):
+    def xtest_has_edge(self):
         n1 = Node(rand_string())
         n2, n3 = rand_string(2)
 
@@ -120,7 +121,7 @@ class DefinitionTestCase(TestCase):
         self.d.add_edge('client_rejected', 'updated')
         self.d.add_edge('updated', 'ready')
 
-    def test__str__(self):
+    def xtest__str__(self):
         expected = """Definition Orders v1: ~new, ~returned, client_confirmed, client_rejected, ready, sent_to_client, submitted, updated
  * ~new             -> submitted
  * ~returned        -> submitted
@@ -132,10 +133,10 @@ class DefinitionTestCase(TestCase):
  * updated          -> ready"""
         self.assertEquals(str(self.d), expected)
 
-    def test_get_roots(self):
+    def xtest_get_roots(self):
         self.assertListEqual(self.d.roots, ['new', 'returned'])
 
-    def test_add_node(self):
+    def xtest_add_node(self):
         default = ['new', 'returned', 'submitted', 'ready', 'sent_to_client', 'client_confirmed', 'client_rejected', 'updated']
 
         self.assertEquals(len(self.d.nodes), len(default))
@@ -149,7 +150,7 @@ class DefinitionTestCase(TestCase):
         self.assertTrue(new in self.d.nodes)
         self.assertTrue(new in self.d.roots) # Because no edge leads to it
 
-    def test_add_edge(self):
+    def xtest_add_edge(self):
         name1, name2, name3, name4, name5 = rand_string(5)
 
         self.d.add_node(name1)
@@ -175,7 +176,7 @@ class DefinitionTestCase(TestCase):
 
         self.assertTrue(name1 in self.d.roots) # Because no edge leads to it
 
-    def test_has_edge_ok(self):
+    def xtest_has_edge_ok(self):
         name1, name2, name3, name4, name5 = rand_string(5)
 
         self.d.add_node(name1)
@@ -203,7 +204,7 @@ class DefinitionTestCase(TestCase):
         self.assertFalse(self.d.has_edge(name5, name3))
         self.assertFalse(self.d.has_edge(name5, name4))
 
-    def test_has_edge_missing_nodes(self):
+    def xtest_has_edge_missing_nodes(self):
         name1, name2, name3, name4, name5 = rand_string(5)
 
         # We're adding only three nodes
@@ -239,7 +240,7 @@ class DefinitionTestCase(TestCase):
 
 class ConfigItemTestCase(TestCase):
 
-    def test_parse_config1(self):
+    def xtest_parse_config1(self):
 
         config = """
             [Orders]
@@ -279,7 +280,7 @@ class ConfigItemTestCase(TestCase):
         self.assertSetEqual(ci.def_.nodes['submitted'].edges, set(['ready']))
         self.assertSetEqual(ci.def_.nodes['updated'].edges, set(['ready']))
 
-    def test_parse_config2(self):
+    def xtest_parse_config2(self):
 
         config = """
             [Orders Old]
@@ -324,16 +325,33 @@ class ConfigItemTestCase(TestCase):
 
 # ################################################################################################################################
 
+class StateBackendBaseTestCase(TestCase):
+    def test_not_implemented_error(self):
+
+        base = StateBackendBase()
+
+        for name in ['rename_def', 'get_current_state_info', 'get_history', 'set_current_state_info', 'set_ctx']:
+            func = getattr(base, name)
+            args = rand_string(len(getargspec(func).args)-1)
+            try:
+                func(*args)
+            except NotImplementedError, e:
+                self.assertEquals(e.message, 'Must be implemented in subclasses')
+            else:
+                self.fail('Expected NotImplementedError in `{}`'.format(name))
+
+# ################################################################################################################################
+
 class RedisBackendTestCase(TestCase):
 
     def setUp(self):
         self.conn = FakeRedis()
 
-    def test_patterns(self):
+    def xtest_patterns(self):
         self.assertEquals(RedisBackend.PATTERN_STATE_CURRENT, 'zato:trans:state:current:{}')
         self.assertEquals(RedisBackend.PATTERN_STATE_HISTORY, 'zato:trans:state:history:{}')
 
-    def test_set_current_state_info(self):
+    def xtest_set_current_state_info(self):
         object_tag, def_tag, state_info = rand_string(3, True)
 
         backend = RedisBackend(self.conn)
@@ -342,7 +360,7 @@ class RedisBackendTestCase(TestCase):
         state = self.conn.hget(backend.PATTERN_STATE_CURRENT.format(def_tag), object_tag)
         self.assertEquals(state, state_info)
 
-    def test_get_current_state_info(self):
+    def xtest_get_current_state_info(self):
         object_tag, def_tag, state_info = rand_string(3, True)
 
         backend = RedisBackend(self.conn)
@@ -351,7 +369,7 @@ class RedisBackendTestCase(TestCase):
         state = backend.get_current_state_info(object_tag, def_tag)
         self.assertEquals(state, loads(state_info))
 
-    def test_get_history(self):
+    def xtest_get_history(self):
         object_tag, def_tag = rand_string(2)
         state_info1, state_info2, state_info3 = rand_string(3, True)
 
