@@ -286,13 +286,14 @@ class RedisBackend(StateBackendBase):
 # ################################################################################################################################
 
 class StateMachine(object):
-    def __init__(self, config=None, backend=None):
+    def __init__(self, config=None, backend=None, run_set_up=True):
         self.config = config
         self.backend = backend
         self.object_to_def = {}
 
         # Prepares database and run-time structures
-        self.set_up()
+        if run_set_up:
+            self.set_up()
 
     def set_up(self):
         # Map object types to definitions they are contained in.
