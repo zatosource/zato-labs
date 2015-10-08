@@ -6,19 +6,28 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 # https://zato.io
 
 # stdlib
+from json import dumps, loads
 from unittest import TestCase
 from uuid import uuid4
 
+# fakeredis
+from fakeredis import FakeRedis
+
 # Zato
-from zato.transitions import AddEdgeResult, ConfigItem, CONSTANTS, Definition, Node
+from zato.transitions import AddEdgeResult, ConfigItem, CONSTANTS, Definition, Node, RedisBackend
 
 # ################################################################################################################################
 
-def rand_string(count=1):
+def rand_string(count=1, as_json=False):
     if count == 1:
-        return 'a' + uuid4().hex
+        value = 'a' + uuid4().hex
     else:
-        return ['a' + uuid4().hex for x in range(count)]
+        value = ['a' + uuid4().hex for x in range(count)]
+
+    if as_json:
+        return [dumps(elem) for elem in value]
+    else:
+        return value
 
 # ################################################################################################################################
 
@@ -312,3 +321,48 @@ class ConfigItemTestCase(TestCase):
         self.assertSetEqual(ci.def_.nodes['sent_to_client'].edges, set(['client_confirmed', 'client_rejected']))
         self.assertSetEqual(ci.def_.nodes['submitted'].edges, set(['ready']))
         self.assertSetEqual(ci.def_.nodes['updated'].edges, set(['ready']))
+
+# ################################################################################################################################
+
+class RedisBackendTestCase(TestCase):
+
+    def setUp(self):
+        self.conn = FakeRedis()
+
+    def test_patterns(self):
+        self.assertEquals(RedisBackend.PATTERN_STATE_CURRENT, 'zato:trans:state:current:{}')
+        self.assertEquals(RedisBackend.PATTERN_STATE_HISTORY, 'zato:trans:state:history:{}')
+
+    def test_set_current_state_info(self):
+        object_tag, def_tag, state_info = rand_string(3, True)
+
+        backend = RedisBackend(self.conn)
+        backend.set_current_state_info(object_tag, def_tag, state_info)
+
+        state = self.conn.hget(backend.PATTERN_STATE_CURRENT.format(def_tag), object_tag)
+        self.assertEquals(state, state_info)
+
+    def test_get_current_state_info(self):
+        object_tag, def_tag, state_info = rand_string(3, True)
+
+        backend = RedisBackend(self.conn)
+        backend.set_current_state_info(object_tag, def_tag, state_info)
+
+        state = backend.get_current_state_info(object_tag, def_tag)
+        self.assertEquals(state, loads(state_info))
+
+    def test_get_history(self):
+        object_tag, def_tag = rand_string(2)
+        state_info1, state_info2, state_info3 = rand_string(3, True)
+
+        backend = RedisBackend(self.conn)
+
+        backend.set_current_state_info(object_tag, def_tag, state_info1)
+        backend.set_current_state_info(object_tag, def_tag, state_info2)
+        backend.set_current_state_info(object_tag, def_tag, state_info3)
+
+        history = backend.get_history(object_tag, def_tag)
+
+        self.assertListEqual(history, [state_info1, state_info2, state_info3])
+
+# ################################################################################################################################
