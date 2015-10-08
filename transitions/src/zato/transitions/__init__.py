@@ -11,6 +11,7 @@ from json import dumps, loads
 from logging import basicConfig, getLogger
 from uuid import uuid4
 
+# Bunch
 from bunch import Bunch
 
 # ConfigObj
@@ -325,6 +326,19 @@ class StateMachine(object):
     def get_object_tag(object_type, object_id):
         return '{}.{}'.format(object_type, object_id)
 
+    def get_def_tag(self, object_type, object_id, state_new, def_name, def_version):
+        def_tag = self.object_to_def[object_type]
+
+        if len(def_tag) > 1:
+            msg = 'Ambiguous input. Object `{}` maps to more than one definition `{}` '\
+                '(id:`{}`, state_new:`{}`, def_name:`{}`, def_version:`{}`)'.format(
+                object_type, ', '.join(def_tag), object_id, state_new, def_name, def_version)
+            logger.warn(msg)
+            raise TransitionError(msg)
+
+        # Ok, we've got it now after ensuring there is only one definition for that object type
+        return def_tag[0]
+
 # ################################################################################################################################
 
     def get_transition_info(self, state_current, state_new, object_tag, def_tag, server_ctx, user_ctx, is_forced):
@@ -378,16 +392,22 @@ class StateMachine(object):
 
 # ################################################################################################################################
 
-    def transit(self, object_tag, state_new, def_tag, server_ctx, user_ctx=None, force=False):
+    def transit(self, object_tag, state_new, def_tag, server_ctx, user_ctx=None, force=False, raise_on_error=True):
 
         # Make sure this is a valid transition
         can_transit, reason, state_current = self.can_transit(object_tag, state_new, def_tag, force)
+
         if not can_transit:
-            raise TransitionError(reason)
+            if raise_on_error:
+                raise TransitionError(reason)
+            else:
+                return can_transit, reason, state_current, state_new
 
         self.backend.set_current_state_info(
             object_tag, def_tag, dumps(self.get_transition_info(
                 state_current, state_new, object_tag, def_tag, server_ctx, user_ctx, force)))
+
+        return can_transit, reason, state_current, state_new
 
 # ################################################################################################################################
 
@@ -444,17 +464,8 @@ class transition_to(object):
                 logger.warn(msg)
                 raise TransitionError(msg)
 
-            def_tag = self.state_machine.object_to_def[self.object_type]
-
-            if len(def_tag) > 1:
-                msg = 'Ambiguous input. Object `{}` maps to more than one definition `{}` '\
-                    '(id:`{}`, state_new:`{}`, def_name:`{}`, def_version:`{}`)'.format(
-                    self.object_type, ', '.join(def_tag), self.object_id, self.state_new, self.def_name, self.def_version)
-                logger.warn(msg)
-                raise TransitionError(msg)
-
-            # Ok, we've got it now after ensuring there is only one definition for that object type
-            self.def_tag = def_tag[0]
+            self.def_tag = self.state_machine.get_def_tag(
+                self, self.object_type, self.object_id, self.state_new, self.def_name, self.def_version)
 
         can_transit, reason, _ = self.state_machine.can_transit(self.object_tag, self.state_new, self.def_tag, self.force)
         if not can_transit:
