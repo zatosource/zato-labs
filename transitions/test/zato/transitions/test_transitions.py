@@ -10,13 +10,17 @@ from unittest import TestCase
 from uuid import uuid4
 
 # Zato
-from zato.transitions import AddEdgeResult, CONSTANTS, Definition, Node
+from zato.transitions import AddEdgeResult, ConfigItem, CONSTANTS, Definition, Node
+
+# ################################################################################################################################
 
 def rand_string(count=1):
     if count == 1:
         return 'a' + uuid4().hex
     else:
         return ['a' + uuid4().hex for x in range(count)]
+
+# ################################################################################################################################
 
 class AddEdgeResultTestCase(TestCase):
     def test_attrs(self):
@@ -33,6 +37,8 @@ class AddEdgeResultTestCase(TestCase):
                     self.assertEquals(aer.error_code, code)
                     self.assertEquals(aer.details, detail)
                     self.assertEquals(bool(aer), is_ok)
+
+# ################################################################################################################################
 
 class NodeTestCase(TestCase):
     def test_attrs(self):
@@ -79,6 +85,8 @@ class NodeTestCase(TestCase):
 
         self.assertTrue(n1.has_edge(n2))
         self.assertTrue(n1.has_edge(n3))
+
+# ################################################################################################################################
 
 class DefinitionTestCase(TestCase):
 
@@ -217,3 +225,90 @@ class DefinitionTestCase(TestCase):
 
         self.assertEquals(result45.error_code, CONSTANTS.NO_SUCH_NODE)
         self.assertEquals(result45.details, name4)
+
+# ################################################################################################################################
+
+class ConfigItemTestCase(TestCase):
+
+    def test_parse_config1(self):
+
+        config = """
+            [Orders]
+            objects=order, priority.order
+            force_stop=canceled
+            new=submitted
+            returned=submitted
+            submitted=ready
+            ready=sent_to_client
+            sent_to_client=client_confirmed, client_rejected
+            client_rejected=updated
+            updated=ready
+            """.strip()
+
+        ci = ConfigItem()
+        ci.parse_config(config)
+
+        self.assertListEqual(ci.objects, ['order', 'priority.order'])
+        self.assertListEqual(ci.force_stop, ['canceled'])
+
+        self.assertEquals(ci.def_.name, 'Orders')
+        self.assertEquals(ci.def_.version, 1)
+        self.assertEquals(ci.def_.tag, 'Orders.v1')
+        self.assertEquals(
+            sorted(ci.def_.nodes.keys()),
+            ['client_confirmed', 'client_rejected', 'new', 'ready', 'returned', 'sent_to_client', 'submitted', 'updated'])
+
+        for key in ci.def_.nodes.keys():
+            self.assertEquals(ci.def_.nodes[key].name, key)
+
+        self.assertSetEqual(ci.def_.nodes['client_confirmed'].edges, set())
+        self.assertSetEqual(ci.def_.nodes['client_rejected'].edges, set(['updated']))
+        self.assertSetEqual(ci.def_.nodes['new'].edges, set(['submitted']))
+        self.assertSetEqual(ci.def_.nodes['ready'].edges, set(['sent_to_client']))
+        self.assertSetEqual(ci.def_.nodes['returned'].edges, set(['submitted']))
+        self.assertSetEqual(ci.def_.nodes['sent_to_client'].edges, set(['client_confirmed', 'client_rejected']))
+        self.assertSetEqual(ci.def_.nodes['submitted'].edges, set(['ready']))
+        self.assertSetEqual(ci.def_.nodes['updated'].edges, set(['ready']))
+
+    def test_parse_config2(self):
+
+        config = """
+            [Orders Old]
+            objects=order.old, priority.order
+            version=99a1
+            force_stop=archived,deleted
+            new=submitted
+            returned=submitted
+            submitted=ready
+            ready=sent_to_client
+            sent_to_client=client_confirmed, client_rejected
+            client_rejected=rejected
+            updated=ready
+            """.strip()
+
+        ci = ConfigItem()
+        ci.parse_config(config)
+
+        self.assertListEqual(ci.objects, ['order.old', 'priority.order'])
+        self.assertListEqual(ci.force_stop, ['archived', 'deleted'])
+
+        self.assertEquals(ci.def_.name, 'Orders.Old')
+        self.assertEquals(ci.def_.version, '99a1')
+        self.assertEquals(ci.def_.tag, 'Orders.Old.v99a1')
+
+        self.assertEquals(
+            sorted(ci.def_.nodes.keys()),
+            ['client_confirmed', 'client_rejected', 'new', 'ready', 'rejected', 'returned',
+             'sent_to_client', 'submitted', 'updated'])
+
+        for key in ci.def_.nodes.keys():
+            self.assertEquals(ci.def_.nodes[key].name, key)
+
+        self.assertSetEqual(ci.def_.nodes['client_confirmed'].edges, set())
+        self.assertSetEqual(ci.def_.nodes['client_rejected'].edges, set(['rejected']))
+        self.assertSetEqual(ci.def_.nodes['new'].edges, set(['submitted']))
+        self.assertSetEqual(ci.def_.nodes['ready'].edges, set(['sent_to_client']))
+        self.assertSetEqual(ci.def_.nodes['returned'].edges, set(['submitted']))
+        self.assertSetEqual(ci.def_.nodes['sent_to_client'].edges, set(['client_confirmed', 'client_rejected']))
+        self.assertSetEqual(ci.def_.nodes['submitted'].edges, set(['ready']))
+        self.assertSetEqual(ci.def_.nodes['updated'].edges, set(['ready']))

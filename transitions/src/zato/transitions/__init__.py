@@ -209,6 +209,9 @@ class ConfigItem(object):
         config[def_name] = config[orig_key]
         self.def_.name = def_name
 
+        # Version is optional
+        self.def_.version = config[self.def_.name].pop('version', CONSTANTS.DEFAULT_GRAPH_VERSION)
+
         # Extend attributes that may either strings or lists in config
         self._extend_list(config, 'objects')
         self._extend_list(config, 'force_stop')
@@ -216,9 +219,6 @@ class ConfigItem(object):
         # Collect nodes and edges
         self._add_nodes_edges(config)
         self._add_nodes_edges(config, False)
-
-        # Version is optional
-        self.def_.version = config[self.def_.name].get('version', 1)
 
         # Set correct tag
         self.def_.tag = Definition.get_tag(self.def_.name, self.def_.version)
@@ -383,9 +383,9 @@ class StateMachine(object):
 
 # ################################################################################################################################
 
-class TransitionInfo(object):
+class TransitionInfo(Bunch):
     def __init__(self, ctx):
-        self.ctx = Bunch()
+        self.update(ctx or {})
 
 # ################################################################################################################################
 
@@ -402,7 +402,7 @@ class transition_to(object):
         self.def_name = def_name
         self.def_version = def_version
         self.force = force
-        self.transition_info = TransitionInfo(user_ctx)
+        self.ctx = TransitionInfo(user_ctx)
         self.object_tag = StateMachine.get_object_tag(self.object_type, self.object_id)
         self.def_tag = '' # We cannot be certain what it is yet, we may not have definition's name/version yet
 
@@ -432,9 +432,10 @@ class transition_to(object):
         if not can_transit:
             raise TransitionError(reason)
 
-        return self.transition_info
+        return self.ctx
 
     def __exit__(self, exc_type, exc_value, traceback):
+
         if not exc_type:
             # TODO: Use server_ctx in .transit
             self.state_machine.transit(
@@ -481,13 +482,13 @@ if __name__ == '__main__':
     config2 = """
     [Orders Old]
     objects=order.old, priority.order
-    force_stop=canceled
+    force_stop=archived
     new=submitted
     returned=submitted
     submitted=ready
     ready=sent_to_client
     sent_to_client=client_confirmed, client_rejected
-    client_rejected=updated
+    client_rejected=rejected
     updated=ready
     """.strip()
 
