@@ -12,11 +12,9 @@ from json import dumps, loads
 from bunch import bunchify
 
 # zato-labs
-from zato_transitions import ConfigItem, CONSTANTS, setup_server_config, StateMachine, transition_to
+from zato_transitions import CONSTANTS, setup_server_config, StateMachine, transition_to
 
 # Zato
-from zato.common.broker_message import MESSAGE_TYPE, SERVICE
-from zato.common.util import new_cid
 from zato.server.service import AsIs, Bool, Service
 
 # ################################################################################################################################
@@ -34,7 +32,7 @@ class Base(Service):
     name = 'xzato.labs.bizstates.definition.base'
 
     def before_handle(self):
-        if not 'zato_state_machine' in self.server.user_ctx:
+        if 'zato_state_machine' not in self.server.user_ctx:
             setup_server_config(self)
 
         req = self.request.input
@@ -45,7 +43,7 @@ class Base(Service):
             self.environ.def_version = req.get('def_version', CONSTANTS.DEFAULT_GRAPH_VERSION)
             self.environ.object_tag = StateMachine.get_object_tag(req.object_type, req.object_id)
             self.environ.def_tag = self.environ.sm.get_def_tag(
-                req.object_type, req.object_id, req.state_new, req.get('def_name'), self.environ.def_version)
+                req.object_type, req.object_id, req.get('state_new'), req.get('def_name'), self.environ.def_version)
 
 # ################################################################################################################################
 
@@ -116,22 +114,35 @@ class MassTransit(Base):
 
 # ################################################################################################################################
 
-class GetHistory(Base):
+class GetHistory(SingleTransitBase):
     """ Returns a history of transitions for a given object
     """
     name = 'xzato.labs.bizstates.transition.get-history'
 
+    class SimpleIO:
+        input_required = ('object_type', AsIs('object_id'))
+
+    def handle(self):
+        self.response.payload = dumps(self.environ.sm.get_history(self.environ.object_tag, self.environ.def_tag))
+
+# ################################################################################################################################
+
+class GetDefinitionList(Base):
+    """ Returns all definition as JSON.
+    """
+    name = 'xzato.labs.bizstates.transition.get-definition'
+
 # ################################################################################################################################
 
 class GetDefinition(Base):
-    """ Returns a selected definition, as text, Python dict or a diagram.
+    """ Returns a selected definition, as text, JSON or a diagram.
     """
     name = 'xzato.labs.bizstates.transition.get-definition'
 
 # ################################################################################################################################
 
 class GetCurrentStateInfo(Base):
-    """ Returns information on an object's state in a given process as a Python dict or a diagram.
+    """ Returns information on an object's state in a given process as JSON or a diagram.
     """
     name = 'xzato.labs.bizstates.transition.get-current-state-info'
 

@@ -343,14 +343,14 @@ class StateMachine(object):
 
     def get_transition_info(self, state_current, state_new, object_tag, def_tag, server_ctx, user_ctx, is_forced):
         return {
-            'state_previous': state_current,
+            'state_old': state_current,
             'state_current': state_new,
             'object_tag': object_tag,
             'def_tag': def_tag,
             'transition_ts_utc': datetime.utcnow().isoformat(),
             'server_ctx': server_ctx,
             'user_ctx': user_ctx,
-            'is_forced': is_forced
+            'is_forced': is_forced or False
         }
 
 # ################################################################################################################################
@@ -440,7 +440,7 @@ class transition_to(object):
     def __init__(self, service, object_type, object_id, state_new, def_name=None,
             def_version=None, user_ctx=None, force=False):
 
-        if not 'zato_state_machine' in service.server.user_ctx:
+        if 'zato_state_machine' not in service.server.user_ctx:
             setup_server_config(service)
 
         self.state_machine = service.server.user_ctx.zato_state_machine
