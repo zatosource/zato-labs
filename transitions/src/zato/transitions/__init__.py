@@ -47,6 +47,23 @@ def validate_from_to(func):
 
 # ################################################################################################################################
 
+def setup_server_config(service):
+    config = {}
+    prefix = 'biz_states_'
+    for name, data in service.server.user_config.user.items():
+
+        # Pick up only our definitions ..
+        if name.startswith(prefix):
+
+            # .. parse the definition and append to the state machine's config dict
+            item = ConfigItem()
+            item.parse_config_dict({name.replace(prefix, ''):data})
+            config[item.def_.tag] = item
+
+    service.server.user_ctx.zato_state_machine = StateMachine(config, RedisBackend(service.kvdb.conn))
+
+# ################################################################################################################################
+
 class AddEdgeResult(object):
     """ A boolean result of adding an edge between nodes. Includes error code if the operation failed.
     """
@@ -198,10 +215,7 @@ class ConfigItem(object):
             item = [item]
         getattr(self, attr).extend(item)
 
-    def parse_config(self, data):
-
-        # Parse string as a list of lines
-        config = ConfigObj(data.splitlines())
+    def parse_config_dict(self, config):
 
         # There will be exactly one key
         orig_key = config.keys()[0]
@@ -222,6 +236,11 @@ class ConfigItem(object):
 
         # Set correct tag
         self.def_.tag = Definition.get_tag(self.def_.name, self.def_.version)
+
+    def parse_config_string(self, data):
+
+        # Parse string as a list of lines and turn it into config
+        self.parse_config_dict(ConfigObj(data.splitlines()))
 
 # ################################################################################################################################
 
@@ -335,6 +354,10 @@ class StateMachine(object):
         if force and state_new in config.def_.nodes:
             return True, '', state_current
 
+        # Perhaps it's a forced stop interrupting the process immediately
+        if state_new in config.force_stop:
+            return True, '', state_current
+
         # If not found and it's not a root node, just return False and reason - we cannot work with unknown objects
         if not state_current_info and state_new not in config.def_.roots:
             msg = 'Object `{}` of `{}` not found and target state `{}` is not one of roots `{}`'.format(
@@ -394,9 +417,13 @@ class transition_to(object):
     """ A context manager to encompass validation and saving of states. Called transition_to instead of TransitionTo
     because eventually it will be available in Zato services as 'self.transitions.to'.
     """
-    def __init__(self, state_machine, object_type, object_id, state_new, def_name=None,
+    def __init__(self, service, object_type, object_id, state_new, def_name=None,
             def_version=None, user_ctx=None, force=False):
-        self.state_machine = state_machine
+
+        if not 'zato_state_machine' in service.server.user_ctx:
+            setup_server_config(service)
+
+        self.state_machine = service.server.user_ctx.zato_state_machine
         self.object_type = object_type
         self.object_id = object_id
         self.state_new = state_new
@@ -440,7 +467,7 @@ class transition_to(object):
         if not exc_type:
             # TODO: Use server_ctx in .transit
             self.state_machine.transit(
-                self.object_tag, self.state_new, self.def_tag, None, self.transition_info.ctx, self.force)
+                self.object_tag, self.state_new, self.def_tag, None, self.ctx, self.force)
             return True
 
 # ################################################################################################################################
@@ -494,10 +521,10 @@ if __name__ == '__main__':
     """.strip()
 
     ci1 = ConfigItem()
-    ci1.parse_config(config1)
+    ci1.parse_config_string(config1)
 
     ci2 = ConfigItem()
-    ci2.parse_config(config2)
+    ci2.parse_config_string(config2)
 
     # print(ci1.graph)
 

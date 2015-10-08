@@ -240,7 +240,7 @@ class DefinitionTestCase(TestCase):
 
 class ConfigItemTestCase(TestCase):
 
-    def test_parse_config1(self):
+    def test_parse_config_string1(self):
 
         config = """
             [Orders]
@@ -256,7 +256,7 @@ class ConfigItemTestCase(TestCase):
             """.strip()
 
         ci = ConfigItem()
-        ci.parse_config(config)
+        ci.parse_config_string(config)
 
         self.assertListEqual(ci.objects, ['order', 'priority.order'])
         self.assertListEqual(ci.force_stop, ['canceled'])
@@ -280,7 +280,7 @@ class ConfigItemTestCase(TestCase):
         self.assertSetEqual(ci.def_.nodes['submitted'].edges, set(['ready']))
         self.assertSetEqual(ci.def_.nodes['updated'].edges, set(['ready']))
 
-    def test_parse_config2(self):
+    def test_parse_config_string2(self):
 
         config = """
             [Orders Old]
@@ -297,7 +297,7 @@ class ConfigItemTestCase(TestCase):
             """.strip()
 
         ci = ConfigItem()
-        ci.parse_config(config)
+        ci.parse_config_string(config)
 
         self.assertListEqual(ci.objects, ['order.old', 'priority.order'])
         self.assertListEqual(ci.force_stop, ['archived', 'deleted'])
@@ -404,7 +404,7 @@ class StateMachineTestCase(TestCase):
 
         self.conn = FakeRedis()
         self.ci = ConfigItem()
-        self.ci.parse_config(config)
+        self.ci.parse_config_string(config)
 
         self.sm = StateMachine({self.ci.def_.tag:self.ci}, RedisBackend(self.conn))
         self.sm_no_set_up = StateMachine({self.ci.def_.tag:self.ci}, RedisBackend(self.conn), False)
