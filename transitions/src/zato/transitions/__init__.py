@@ -20,12 +20,6 @@ from configobj import ConfigObj
 
 # ################################################################################################################################
 
-logger = getLogger(__name__)
-
-basicConfig()
-
-# ################################################################################################################################
-
 class CONSTANTS:
     NO_SUCH_NODE = 'NO_SUCH_NODE'
     DEFAULT_GRAPH_VERSION = 1
@@ -202,6 +196,7 @@ class ConfigItem(object):
         self.def_ = Definition()
         self.objects = []
         self.force_stop = []
+        self.orig_config = {}
 
     def _add_nodes_edges(self, config, add_nodes=True):
         for from_, to in config[self.def_.name].items():
@@ -222,10 +217,13 @@ class ConfigItem(object):
             item = [item]
         getattr(self, attr).extend(item)
 
-    def parse_config_dict(self, config):
+    def parse_config_dict(self, orig_config):
 
         # So that the original, possibly still kept in a service's self.user_config, is not modified
-        config = deepcopy(config)
+        config = deepcopy(orig_config)
+
+        # Handy to keep it around because higher level layers may wish to consult it
+        self.orig_config.update(deepcopy(orig_config))
 
         # There will be exactly one key
         orig_key = config.keys()[0]
@@ -318,7 +316,7 @@ class StateMachine(object):
     def __init__(self, config=None, backend=None, run_set_up=True):
         self.config = config
         self.backend = backend
-        self.object_to_def = {}
+        self.object_type_to_def = {}
 
         # Prepares database and run-time structures
         if run_set_up:
@@ -328,7 +326,7 @@ class StateMachine(object):
         # Map object types to definitions they are contained in.
         for def_tag, config_item in self.config.items():
             for object_type in config_item.objects:
-                defs = self.object_to_def.setdefault(object_type, [])
+                defs = self.object_type_to_def.setdefault(object_type, [])
                 defs.append(def_tag)
 
     @staticmethod
@@ -336,7 +334,7 @@ class StateMachine(object):
         return '{}.{}'.format(object_type, object_id)
 
     def get_def_tag(self, object_type, object_id, state_new, def_name, def_version):
-        def_tag = self.object_to_def[object_type]
+        def_tag = self.object_type_to_def[object_type]
 
         if len(def_tag) > 1:
             msg = 'Ambiguous input. Object `{}` maps to more than one definition `{}` '\
@@ -467,7 +465,7 @@ class transition_to(object):
 
         if not self.def_name:
 
-            if self.object_type not in self.state_machine.object_to_def:
+            if self.object_type not in self.state_machine.object_type_to_def:
                 msg = 'Unknown object type `{}` (id:`{}`, state_new:`{}`, def_name:`{}`, def_version:`{}`)'.format(
                     self.object_type, self.object_id, self.state_new, self.def_name, self.def_version)
                 logger.warn(msg)
@@ -489,107 +487,5 @@ class transition_to(object):
             self.state_machine.transit(
                 self.object_tag, self.state_new, self.def_tag, None, self.ctx, self.force)
             return True
-
-# ################################################################################################################################
-
-if __name__ == '__main__':
-    d = Definition('Orders')
-    d.add_node('new')
-    d.add_node('returned')
-    d.add_node('submitted')
-    d.add_node('ready')
-    d.add_node('sent_to_client')
-    d.add_node('client_confirmed')
-    d.add_node('client_rejected')
-    d.add_node('updated')
-
-    d.add_edge('new', 'submitted')
-    d.add_edge('returned', 'submitted')
-    d.add_edge('submitted', 'ready')
-    d.add_edge('ready', 'sent_to_client')
-    d.add_edge('sent_to_client', 'client_confirmed')
-    d.add_edge('sent_to_client', 'client_rejected')
-    d.add_edge('client_rejected', 'updated')
-    d.add_edge('updated', 'ready')
-
-    # print(g)
-
-    config1 = """
-    [Orders]
-    objects=order, priority.order
-    force_stop=canceled
-    new=submitted
-    returned=submitted
-    submitted=ready
-    ready=sent_to_client
-    sent_to_client=client_confirmed, client_rejected
-    client_rejected=updated
-    updated=ready
-    """.strip()
-
-    config2 = """
-    [Orders Old]
-    objects=order.old, priority.order
-    force_stop=archived
-    new=submitted
-    returned=submitted
-    submitted=ready
-    ready=sent_to_client
-    sent_to_client=client_confirmed, client_rejected
-    client_rejected=rejected
-    updated=ready
-    """.strip()
-
-    ci1 = ConfigItem()
-    ci1.parse_config_string(config1)
-
-    ci2 = ConfigItem()
-    ci2.parse_config_string(config2)
-
-    # print(ci1.graph)
-
-    # Imported here because in runtime we expect it to be provided
-    # as an input parameter to state machines, i.e. backends won't
-    # establish connections themselves.
-    from redis import StrictRedis
-
-    conn = StrictRedis()
-
-    config = {
-        ci1.def_.tag: ci1,
-        ci2.def_.tag: ci2
-    }
-
-    order_id = uuid4().hex
-
-    object_tag = StateMachine.get_object_tag('order', order_id)
-    def_tag = Definition.get_tag('Orders', '1')
-
-    server_ctx = 'server-{}:{}'.format(uuid4().hex, datetime.utcnow().isoformat())
-
-    sm = StateMachine(config, RedisBackend(conn))
-
-    with transition_to(sm, 'order', order_id, 'new') as t:
-        t.ctx = '123'
-        # z
-
-    print(t.ctx)
-
-    '''
-    sm = StateMachine(config, RedisBackend(conn))
-    sm.can_transit(object_tag, 'new', def_tag)
-    sm.transit(object_tag, 'new', def_tag, server_ctx)
-    sm.transit(object_tag, 'submitted', def_tag, server_ctx)
-    sm.transit(object_tag, 'submitted', def_tag, server_ctx, force=True)
-
-    print()
-    print('Current:', sm.get_current_state_info(object_tag, def_tag))
-    print()
-    print('History:')
-    for item in sm.get_history(object_tag, def_tag):
-        print(' * ', item)
-        print()
-    print()
-    '''
 
 # ################################################################################################################################

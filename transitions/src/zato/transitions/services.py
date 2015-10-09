@@ -12,10 +12,17 @@ from json import dumps, loads
 from bunch import bunchify
 
 # zato-labs
-from zato_transitions import CONSTANTS, setup_server_config, StateMachine, transition_to, yield_definitions
+from zato_transitions import CONSTANTS, Definition, setup_server_config, StateMachine, transition_to, yield_definitions
 
 # Zato
+from zato.server.connection.http_soap import BadRequest
 from zato.server.service import AsIs, Bool, Service
+
+# ################################################################################################################################
+
+class FORMAT:
+    DEFINITION = ['diagram', 'json', 'text']
+    STATE = ['diagram', 'json']
 
 # ################################################################################################################################
 
@@ -35,15 +42,22 @@ class Base(Service):
         if 'zato_state_machine' not in self.server.user_ctx:
             setup_server_config(self)
 
-        req = self.request.input
-        if req:
-            self.environ = bunchify(self.environ)
+        self.environ = bunchify(self.environ)
+        self.environ.sm = self.server.user_ctx.zato_state_machine
 
-            self.environ.sm = self.server.user_ctx.zato_state_machine
+        req = self.request.input
+        if req and 'object_type' in req:
             self.environ.def_version = req.get('def_version', CONSTANTS.DEFAULT_GRAPH_VERSION)
             self.environ.object_tag = StateMachine.get_object_tag(req.object_type, req.object_id)
             self.environ.def_tag = self.environ.sm.get_def_tag(
                 req.object_type, req.object_id, req.get('state_new'), req.get('def_name'), self.environ.def_version)
+
+# ################################################################################################################################
+
+class JSONProducer(Service):
+    name = 'xzato.labs.bizstates.definition.json-producer'
+    def after_handle(self):
+        self.response.content_type = 'application/json'
 
 # ################################################################################################################################
 
@@ -59,7 +73,7 @@ class StartupSetup(Base):
 
 # ################################################################################################################################
 
-class SingleTransitBase(Base):
+class SingleTransitionBase(Base):
     name = 'xzato.labs.bizstates.transition.single-transit-base'
 
     class SimpleIO:
@@ -74,10 +88,10 @@ class SingleTransitBase(Base):
         self.response.payload.state_old = state_old
         self.response.payload.state_new = state_new
 
-class CanTransit(SingleTransitBase):
+class CanTransition(SingleTransitionBase):
     """ Returns information if a given object can transit to a new state.
     """
-    name = 'xzato.labs.bizstates.transition.can-transit'
+    name = 'xzato.labs.bizstates.transition.can-transition'
 
     def handle(self):
         self._set_response(*self.environ.sm.can_transit(
@@ -85,13 +99,13 @@ class CanTransit(SingleTransitBase):
 
 # ################################################################################################################################
 
-class Transit(SingleTransitBase):
+class Transition(SingleTransitionBase):
     """ Performs a transition on an object.
     """
-    name = 'xzato.labs.bizstates.transition.transit'
+    name = 'xzato.labs.bizstates.transition'
 
-    class SimpleIO(SingleTransitBase.SimpleIO):
-        input_optional = SingleTransitBase.SimpleIO.input_optional + ('user_ctx',)
+    class SimpleIO(SingleTransitionBase.SimpleIO):
+        input_optional = SingleTransitionBase.SimpleIO.input_optional + ('user_ctx',)
 
     def handle(self):
         self._set_response(*self.environ.sm.transit(
@@ -100,10 +114,10 @@ class Transit(SingleTransitBase):
 
 # ################################################################################################################################
 
-class MassTransit(Base):
+class MassTransition(Base, JSONProducer):
     """ Performs transitions on a list of object.
     """
-    name = 'xzato.labs.bizstates.transition.mass-transit'
+    name = 'xzato.labs.bizstates.transition.mass'
 
     def handle(self):
         out = []
@@ -114,7 +128,7 @@ class MassTransit(Base):
 
 # ################################################################################################################################
 
-class GetHistory(SingleTransitBase):
+class GetHistory(SingleTransitionBase, JSONProducer):
     """ Returns a history of transitions for a given object
     """
     name = 'xzato.labs.bizstates.transition.get-history'
@@ -127,29 +141,76 @@ class GetHistory(SingleTransitBase):
 
 # ################################################################################################################################
 
-class GetDefinitionList(Base):
+class GetDefinitionList(Base, JSONProducer):
     """ Returns all definition as JSON.
     """
-    name = 'xzato.labs.bizstates.transition.get-definition'
+    name = 'xzato.labs.bizstates.transition.get-definition-list'
 
     def handle(self):
-        out = []
-        for name, data in yield_definitions(self):
-            out.append(name, data)
-        return dumps(out)
+        self.response.payload = dumps([{name:data} for name, data in yield_definitions(self)])
 
 # ################################################################################################################################
 
-class GetDefinition(Base):
+class FormatBase(Base):
+
+    class SimpleIO:
+        input_required = ('format',)
+
+    def_format = None
+
+    def validate_input(self):
+        if self.request.input.format not in self.def_format:
+            raise BadRequest(self.cid, 'Format is not one of `{}`'.format(', '.join(self.def_format)))
+
+# ################################################################################################################################
+
+class GetDefinition(FormatBase):
     """ Returns a selected definition, as text, JSON or a diagram.
     """
     name = 'xzato.labs.bizstates.transition.get-definition'
+    def_format = FORMAT.DEFINITION
+
+    class SimpleIO(FormatBase.SimpleIO):
+        input_required = FormatBase.SimpleIO.input_required + ('def_name',)
+        input_optional = ('def_version',)
+
+    def handle(self):
+        def_name = Definition.get_name(self.request.input.def_name)
+        def_tag = Definition.get_tag(def_name, self.request.input.get('def_version') or CONSTANTS.DEFAULT_GRAPH_VERSION)
+
+        if def_tag not in self.environ.sm.config:
+            raise BadRequest(self.cid, 'No such definition `{}`'.format(def_tag))
+
+        self.response.payload = getattr(self, '_handle_def_{}'.format(self.request.input.format))(def_tag)
+
+    def _handle_def_text(self, def_tag):
+        return str(self.environ.sm.config[def_tag].def_)
+
+    def _handle_def_json(self, def_tag):
+        return dumps(self.environ.sm.config[def_tag].orig_config)
+
+    def _handle_def_diagram(self):
+        raise NotImplementedError('TODO')
 
 # ################################################################################################################################
 
-class GetCurrentStateInfo(Base):
+class GetCurrentStateInfo(FormatBase):
     """ Returns information on an object's state in a given process as JSON or a diagram.
     """
     name = 'xzato.labs.bizstates.transition.get-current-state-info'
+    def_format = FORMAT.STATE
+
+    class SimpleIO(FormatBase.SimpleIO):
+        input_required = FormatBase.SimpleIO.input_required + ('object_type', AsIs('object_id'))
+        input_optional = ('def_name', 'def_version')
+
+    def handle(self):
+        self.response.payload = getattr(self, '_handle_def_{}'.format(self.request.input.format))()
+
+    def _handle_def_json(self):
+        return dumps(self.environ.sm.get_current_state_info(self.environ.object_tag, self.environ.def_tag))
+
+    def _handle_def_diagram(self):
+        raise NotImplementedError('TODO')
 
 # ################################################################################################################################
