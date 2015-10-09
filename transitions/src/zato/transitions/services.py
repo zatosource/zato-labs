@@ -56,6 +56,7 @@ class Base(Service):
 
 class JSONProducer(Service):
     name = 'xzato.labs.bizstates.definition.json-producer'
+
     def after_handle(self):
         self.response.content_type = 'application/json'
 
@@ -122,7 +123,7 @@ class MassTransition(Base, JSONProducer):
     def handle(self):
         out = []
         for item in loads(self.request.raw_request):
-            out.append(self.invoke(Transit.name, item))
+            out.append(self.invoke(Transition.name, item))
 
         self.response.payload = dumps(out)
 

@@ -9,7 +9,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 from copy import deepcopy
 from datetime import datetime
 from json import dumps, loads
-from logging import basicConfig, getLogger
+from logging import getLogger
 from uuid import uuid4
 
 # Bunch
@@ -17,6 +17,10 @@ from bunch import Bunch
 
 # ConfigObj
 from configobj import ConfigObj
+
+# ################################################################################################################################
+
+logger = getLogger(__name__)
 
 # ################################################################################################################################
 
