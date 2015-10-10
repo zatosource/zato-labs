@@ -507,8 +507,11 @@ class StateMachine(object):
         history = self.get_history(state_info.object_tag, state_info.def_tag)
 
         if name == state_info.state_current:
-            return '{}\n{} {}'.format(
-                name, self.reformat_date(state_info.transition_ts_utc, time_zone, date_time_format), time_zone)
+            return '{}{}\n{} {}'.format(
+                name,
+                ' (f)' if state_info.is_forced else '',
+                self.reformat_date(state_info.transition_ts_utc, time_zone, date_time_format),
+                time_zone)
 
         elif name == state_info.state_old:
 
@@ -516,13 +519,16 @@ class StateMachine(object):
             # for this object and look up the penultimate element which points to the previous state.
             previous = history[-2]
 
-            return '{}\n{} {}'.format(
-                name, self.reformat_date(previous['transition_ts_utc'], time_zone, date_time_format), time_zone)
+            return '{}{}\n{} {}'.format(
+                name,
+                ' (f)' if previous['is_forced'] else '',
+                self.reformat_date(previous['transition_ts_utc'], time_zone, date_time_format),
+                time_zone)
 
         return name
 
-    def get_diagram_label(self, name, state_info, time_zone, date_time_format):
-        item = '{name_safe} [label="{name_state}" {options}]'
+    def get_diagram_label(self, name, state_info, time_zone, date_time_format, is_stop=False):
+        item = '{name_safe} [label="{name_state}{is_stop}" {options}]'
 
         if state_info and name in (state_info.state_current, state_info.state_old):
             options = ', class="emphasis"'
@@ -532,6 +538,7 @@ class StateMachine(object):
         return item.format(
             name_safe=self.get_diagram_safe_name(name),
             name_state=self.get_name_state(name, state_info, time_zone, date_time_format),
+            is_stop=' (s)' if is_stop else '',
             options=options)
 
 # ################################################################################################################################
@@ -581,7 +588,7 @@ class StateMachine(object):
 
         # Forced stops
         for name in config_item.force_stop:
-            forced_stop.append(self.get_diagram_label(name, state_info, time_zone, date_time_format))
+            forced_stop.append(self.get_diagram_label(name, state_info, time_zone, date_time_format, True))
 
         forced_stop = '\n'.join(sorted('   {}'.format(elem) for elem in forced_stop))
         labels = '\n'.join(sorted('   {}'.format(elem) for elem in labels))
