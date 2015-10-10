@@ -10,7 +10,11 @@ from copy import deepcopy
 from datetime import datetime
 from json import dumps, loads
 from logging import getLogger
+from string import Template
 from uuid import uuid4
+
+# Arrow
+from arrow import get as arrow_get
 
 # Blockdiag
 from blockdiag.parser import parse_string
@@ -18,8 +22,9 @@ from blockdiag.builder import ScreenNodeBuilder
 from blockdiag.drawer import DiagramDraw
 from blockdiag.imagedraw import png
 from blockdiag.imagedraw.png import setup as png_setup
-from blockdiag.noderenderer import beginpoint, endpoint, roundedbox
+from blockdiag.noderenderer import beginpoint, box, endpoint, roundedbox
 from blockdiag.noderenderer.beginpoint import setup as beginpoint_setup
+from blockdiag.noderenderer.box import setup as box_setup
 from blockdiag.noderenderer.endpoint import setup as endpoint_setup
 from blockdiag.noderenderer.roundedbox import setup as roundedbox_setup
 
@@ -28,6 +33,9 @@ from bunch import Bunch
 
 # ConfigObj
 from configobj import ConfigObj
+
+# PyTZ
+import pytz
 
 # ################################################################################################################################
 
@@ -38,6 +46,7 @@ logger = getLogger(__name__)
 png_setup(png)
 
 beginpoint_setup(beginpoint)
+box_setup(box)
 endpoint_setup(endpoint)
 roundedbox_setup(roundedbox)
 
@@ -51,18 +60,22 @@ class CONST:
     DEFINITION_PREFIX = 'biz_states_'
     DIAG_ORIENTATION = ['portrait', 'landscape']
     DIAG_DEF_TEMPLATE = """
-blockdiag {{
-   orientation = {};
-   default_shape = roundedbox;
-   node_width = {};
+blockdiag {
+   orientation = $orientation;
+   default_shape = box;
+   node_width = $node_width;
+
+class emphasis [color="#bcCc73", style = dashed];
+
+$forced_stop
 
    begin [shape = beginpoint];
    end [shape = endpoint];
 
-%s
+$labels
 
-%s
-}}
+$edges
+}
 """.lstrip()
 
 # ################################################################################################################################
@@ -416,7 +429,8 @@ class StateMachine(object):
         if force and state_new in config.def_.nodes:
             return True, '', state_current
 
-        # Perhaps it's a forced stop interrupting the process immediately
+        # Perhaps it's a forced stop interrupting the process immediately.
+        # However, unless forced to, we don't want to transition the same stop state.
         if state_new in config.force_stop:
             return True, '', state_current
 
@@ -466,7 +480,10 @@ class StateMachine(object):
 # ################################################################################################################################
 
     def get_current_state_info(self, object_tag, def_tag):
-        return self.backend.get_current_state_info(object_tag, def_tag)
+        state_info = self.backend.get_current_state_info(object_tag, def_tag)
+        state_info['object_tag'] = object_tag
+        state_info['def_tag'] = def_tag
+        return state_info
 
 # ################################################################################################################################
 
@@ -478,9 +495,49 @@ class StateMachine(object):
     def get_diagram_safe_name(self, name):
         return name.strip().lower().replace(' ', '_')
 
+    def reformat_date(self, value, time_zone, date_time_format):
+        value = arrow_get(value).replace(tzinfo=pytz.UTC)
+        local_tz = pytz.timezone(time_zone)
+        return local_tz.normalize(value.astimezone(local_tz)).strftime(date_time_format)
+
+    def get_name_state(self, name, state_info, time_zone, date_time_format):
+        if not state_info:
+            return name
+
+        history = self.get_history(state_info.object_tag, state_info.def_tag)
+
+        if name == state_info.state_current:
+            return '{}\n{} {}'.format(
+                name, self.reformat_date(state_info.transition_ts_utc, time_zone, date_time_format), time_zone)
+
+        elif name == state_info.state_old:
+
+            # We know there is some previous state so we can get history
+            # for this object and look up the penultimate element which points to the previous state.
+            previous = history[-2]
+
+            return '{}\n{} {}'.format(
+                name, self.reformat_date(previous['transition_ts_utc'], time_zone, date_time_format), time_zone)
+
+        return name
+
+    def get_diagram_label(self, name, state_info, time_zone, date_time_format):
+        item = '{name_safe} [label="{name_state}" {options}]'
+
+        if state_info and name in (state_info.state_current, state_info.state_old):
+            options = ', class="emphasis"'
+        else:
+            options = ''
+
+        return item.format(
+            name_safe=self.get_diagram_safe_name(name),
+            name_state=self.get_name_state(name, state_info, time_zone, date_time_format),
+            options=options)
+
 # ################################################################################################################################
 
-    def get_def_diagram(self, def_tag, node_width=None, orientation=None):
+    def get_diagram(self, def_tag, node_width=None, orientation=None, needs_highlight=False, state_info=None, time_zone='UTC',
+            date_time_format='%a %d/%m/%y %H:%M:%S'):
 
         node_width = node_width or CONST.DEFAULT_DIAG_NODE_WIDTH
         orientation = orientation or CONST.DEFAULT_DIAG_ORIENTATION
@@ -489,6 +546,7 @@ class StateMachine(object):
         name = config_item.def_config.keys()[0] # There will be one key only
         config = config_item.def_config[name]
 
+        forced_stop = []
         labels = []
         edges = []
 
@@ -500,15 +558,16 @@ class StateMachine(object):
             # Regular edges
             for to in to:
                 to_safe = self.get_diagram_safe_name(to)
+
                 edges.append('{} -> {};'.format(from_safe, to_safe))
 
                 # Labels separately so nodes can contain whitespace
 
-                from_label = '{} [label = "{}"];'.format(from_safe, from_)
+                from_label = self.get_diagram_label(from_, state_info, time_zone, date_time_format)
                 if from_label not in labels:
                     labels.append(from_label)
 
-                to_label = '{} [label = "{}"];'.format(to_safe, to)
+                to_label = self.get_diagram_label(to, state_info, time_zone, date_time_format)
                 if to_label not in labels:
                     labels.append(to_label)
 
@@ -520,11 +579,16 @@ class StateMachine(object):
             if from_safe in config_item.def_.roots:
                 edges.append('begin -> {};'.format(from_safe))
 
+        # Forced stops
+        for name in config_item.force_stop:
+            forced_stop.append(self.get_diagram_label(name, state_info, time_zone, date_time_format))
+
+        forced_stop = '\n'.join(sorted('   {}'.format(elem) for elem in forced_stop))
         labels = '\n'.join(sorted('   {}'.format(elem) for elem in labels))
         edges = '\n'.join(sorted('   {}'.format(elem) for elem in edges))
 
-        diag_def = CONST.DIAG_DEF_TEMPLATE.format(orientation, node_width)
-        diag_def = diag_def % (labels, edges)
+        diag_def = Template(CONST.DIAG_DEF_TEMPLATE).safe_substitute(orientation=orientation, node_width=node_width,
+            forced_stop=forced_stop, labels=labels, edges=edges)
 
         try:
             diagram = ScreenNodeBuilder.build(parse_string(diag_def))

@@ -27,7 +27,7 @@ class FORMAT:
 # ################################################################################################################################
 
 class Testing(Service):
-    name = 'xzato.labs.bizstates.definition.testing'
+    name = 'zato.labs.transitions.definition.testing'
 
     def handle(self):
 
@@ -38,7 +38,7 @@ class Testing(Service):
 # ################################################################################################################################
 
 class Base(Service):
-    name = 'xzato.labs.bizstates.definition.base'
+    name = 'zato.labs.transitions.definition.base'
 
     def before_handle(self):
         if 'zato_state_machine' not in self.server.user_ctx:
@@ -57,7 +57,7 @@ class Base(Service):
 # ################################################################################################################################
 
 class JSONProducer(Service):
-    name = 'xzato.labs.bizstates.definition.json-producer'
+    name = 'zato.labs.transitions.definition.json-producer'
 
     def after_handle(self):
         self.response.content_type = 'application/json'
@@ -68,7 +68,7 @@ class StartupSetup(Base):
     """ A start-up service to imports all definitions of transitions in state machines
     and creates runtime structures out of what is found.
     """
-    name = 'xzato.labs.bizstates.definition.startup-setup'
+    name = 'zato.labs.transitions.definition.startup-setup'
 
     def handle(self):
         # Base before_handle does everything we need
@@ -77,7 +77,7 @@ class StartupSetup(Base):
 # ################################################################################################################################
 
 class SingleTransitionBase(Base):
-    name = 'xzato.labs.bizstates.transition.single-transit-base'
+    name = 'zato.labs.transitions.single-transit-base'
 
     class SimpleIO:
         input_required = ('object_type', AsIs('object_id'), 'state_new')
@@ -94,7 +94,7 @@ class SingleTransitionBase(Base):
 class CanTransition(SingleTransitionBase):
     """ Returns information if a given object can transit to a new state.
     """
-    name = 'xzato.labs.bizstates.transition.can-transition'
+    name = 'zato.labs.transitions.can-transition'
 
     def handle(self):
         self._set_response(*self.environ.sm.can_transit(
@@ -105,7 +105,7 @@ class CanTransition(SingleTransitionBase):
 class Transition(SingleTransitionBase):
     """ Performs a transition on an object.
     """
-    name = 'xzato.labs.bizstates.transition'
+    name = 'zato.labs.transitions.transition'
 
     class SimpleIO(SingleTransitionBase.SimpleIO):
         input_optional = SingleTransitionBase.SimpleIO.input_optional + ('user_ctx',)
@@ -120,7 +120,7 @@ class Transition(SingleTransitionBase):
 class MassTransition(Base, JSONProducer):
     """ Performs transitions on a list of object.
     """
-    name = 'xzato.labs.bizstates.transition.mass'
+    name = 'zato.labs.transitions.mass-transition'
 
     def handle(self):
         out = []
@@ -134,7 +134,7 @@ class MassTransition(Base, JSONProducer):
 class GetHistory(SingleTransitionBase, JSONProducer):
     """ Returns a history of transitions for a given object
     """
-    name = 'xzato.labs.bizstates.transition.get-history'
+    name = 'zato.labs.transitions.get-history'
 
     class SimpleIO:
         input_required = ('object_type', AsIs('object_id'))
@@ -147,7 +147,7 @@ class GetHistory(SingleTransitionBase, JSONProducer):
 class GetDefinitionList(Base, JSONProducer):
     """ Returns all definition as JSON.
     """
-    name = 'xzato.labs.bizstates.transition.get-definition-list'
+    name = 'zato.labs.transitions.get-definition-list'
 
     def handle(self):
         self.response.payload = dumps([{name:data} for name, data in yield_definitions(self)])
@@ -168,7 +168,7 @@ class FormatBase(Base):
 class GetDefinition(FormatBase):
     """ Returns a selected definition, as text, JSON or a diagram.
     """
-    name = 'xzato.labs.bizstates.transition.get-definition'
+    name = 'zato.labs.transitions.get-definition'
     def_format = FORMAT.DEFINITION
 
     class SimpleIO:
@@ -184,47 +184,53 @@ class GetDefinition(FormatBase):
         format = self.request.input.get('format') or 'diagram-png'
         format = format.replace('-', '_')
 
-        getattr(self, '_handle_def_{}'.format(format))(def_tag)
+        getattr(self, '_handle_{}'.format(format))(def_tag)
 
-    def _handle_def_text(self, def_tag):
+    def _handle_text(self, def_tag):
+        """ Returns a string representation of a definition.
+        """
         return str(self.environ.sm.config[def_tag].def_)
 
-    def _handle_def_json(self, def_tag):
+    def _handle_json(self, def_tag):
+        """ Returns a JSON representation of a definition.
+        """
         return dumps(self.environ.sm.config[def_tag].orig_config)
 
-    def _get_def_diagram(self, def_tag, needs_png=True, mime_type='image/png'):
+    def _get_diagram(self, def_tag, needs_png=True, mime_type='image/png'):
+        """ Returns either a diagram of a definition, or blockdiag's configuration of the diagram.
+        """
         png, diag_def = self.environ.sm.get_def_diagram(
             def_tag, self.request.input.get('node_width'), self.request.input.get('orientation'))
 
         self.response.payload = png if needs_png else diag_def
         self.response.content_type = mime_type
 
-    def _handle_def_diagram_png(self, def_tag):
-        self._get_def_diagram(def_tag)
+    def _handle_diagram_png(self, def_tag):
+        """ Returns a definition as a block diagram.
+        """
+        self._get_diagram(def_tag)
 
-    def _handle_def_diagram_def(self, def_tag):
-        self._get_def_diagram(def_tag, False, 'text/plain')
+    def _handle_diagram_def(self, def_tag):
+        """ Returns a definition as a blockdiag's configuration.
+        """
+        self._get_diagram(def_tag, False, 'text/plain')
 
 # ################################################################################################################################
 
-class GetCurrentStateInfo(FormatBase):
+class GetCurrentStateInfo(GetDefinition):
     """ Returns information on an object's state in a given process as JSON or a diagram.
     """
-    name = 'xzato.labs.bizstates.transition.get-current-state-info'
+    name = 'zato.labs.transitions.get-current-state-info'
     def_format = FORMAT.STATE
 
     class SimpleIO:
         input_required = ('format', 'object_type', AsIs('object_id'))
         input_optional = ('def_name', 'def_version')
 
-    def handle(self):
-        self.response.payload = getattr(self, '_handle_def_{}'.format(self.request.input.format))()
-
-    def _handle_def_json(self):
+    def _handle_json(self):
         return dumps(self.environ.sm.get_current_state_info(self.environ.object_tag, self.environ.def_tag))
 
-    def _handle_def_diagram(self):
+    def _handle_diagram(self):
         raise NotImplementedError('TODO')
 
 # ################################################################################################################################
-
