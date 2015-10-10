@@ -12,7 +12,7 @@ from json import dumps, loads
 from bunch import bunchify
 
 # zato-labs
-from zato_transitions import CONST, Definition, setup_server_config, StateMachine, transition_to, yield_definitions
+from zato_transitions import CONST, Definition, setup_server_config, StateMachine, yield_definitions
 
 # Zato
 from zato.server.connection.http_soap import BadRequest
@@ -23,17 +23,6 @@ from zato.server.service import AsIs, Bool, Service
 class FORMAT:
     DEFINITION = ['diagram-def', 'diagram-png', 'json', 'text']
     STATE = ['diagram-def', 'diagram-png', 'json']
-
-# ################################################################################################################################
-
-class Testing(Service):
-    name = 'zato.labs.transitions.definition.testing'
-
-    def handle(self):
-
-        for x in range(50):
-            with transition_to(self, 'order', x, 'canceled'):
-                pass
 
 # ################################################################################################################################
 
@@ -77,7 +66,7 @@ class StartupSetup(Base):
 # ################################################################################################################################
 
 class SingleTransitionBase(Base):
-    name = 'zato.labs.transitions.single-transit-base'
+    name = 'zato.labs.transitions.single-transition-base'
 
     class SimpleIO:
         input_required = ('object_type', AsIs('object_id'), 'state_new')
@@ -157,6 +146,7 @@ class GetDefinitionList(Base, JSONProducer):
 class FormatBase(Base):
 
     def_format = None
+    needs_state_info = False
 
     def validate_input(self):
         format = self.request.input.get('format')
@@ -172,7 +162,7 @@ class GetDefinition(FormatBase):
     def_format = FORMAT.DEFINITION
 
     class SimpleIO:
-        input_optional = ('format', 'def_version', 'node_width', 'node_width', 'orientation')
+        input_optional = ('format', 'def_version', 'node_width', 'orientation')
 
     def handle(self):
         def_name = Definition.get_name(self.request.input.def_name)
@@ -181,39 +171,47 @@ class GetDefinition(FormatBase):
         if def_tag not in self.environ.sm.config:
             raise BadRequest(self.cid, 'No such definition `{}`\n'.format(def_tag))
 
+        self._get_handle()(def_tag)
+
+    def _get_handle(self):
+
         format = self.request.input.get('format') or 'diagram-png'
         format = format.replace('-', '_')
+        return getattr(self, '_handle_def_{}'.format(format))
 
-        getattr(self, '_handle_{}'.format(format))(def_tag)
-
-    def _handle_text(self, def_tag):
-        """ Returns a string representation of a definition.
-        """
+    def _handle_def_text(self, def_tag):
         return str(self.environ.sm.config[def_tag].def_)
 
-    def _handle_json(self, def_tag):
-        """ Returns a JSON representation of a definition.
-        """
+    def _handle_def_json(self, def_tag):
         return dumps(self.environ.sm.config[def_tag].orig_config)
 
-    def _get_diagram(self, def_tag, needs_png=True, mime_type='image/png'):
-        """ Returns either a diagram of a definition, or blockdiag's configuration of the diagram.
-        """
-        png, diag_def = self.environ.sm.get_def_diagram(
-            def_tag, self.request.input.get('node_width'), self.request.input.get('orientation'))
+    def _get_def_diagram(self, def_tag, needs_png=True, mime_type='image/png', state_info=None):
+
+        optional = {}
+        for item in self.SimpleIO.input_optional:
+            if item not in ('def_name', 'def_version', 'format'):
+                item = item if isinstance(item, basestring) else item.name
+                optional[item] = self.request.input.get(item)
+
+        if self.needs_state_info:
+            optional['state_info'] = bunchify(
+                self.environ.sm.get_current_state_info(self.environ.object_tag, self.environ.def_tag))
+
+        # An empty string from a missing optional arguments gets turned into a proper boolean
+        include_force_stop = optional['include_force_stop']
+        if isinstance(include_force_stop, basestring) and not include_force_stop:
+            optional['include_force_stop'] = True
+
+        png, diag_def = self.environ.sm.get_diagram(def_tag, **optional)
 
         self.response.payload = png if needs_png else diag_def
         self.response.content_type = mime_type
 
-    def _handle_diagram_png(self, def_tag):
-        """ Returns a definition as a block diagram.
-        """
-        self._get_diagram(def_tag)
+    def _handle_def_diagram_png(self, def_tag):
+        self._get_def_diagram(def_tag)
 
-    def _handle_diagram_def(self, def_tag):
-        """ Returns a definition as a blockdiag's configuration.
-        """
-        self._get_diagram(def_tag, False, 'text/plain')
+    def _handle_def_diagram_def(self, def_tag):
+        self._get_def_diagram(def_tag, False, 'text/plain')
 
 # ################################################################################################################################
 
@@ -222,15 +220,17 @@ class GetCurrentStateInfo(GetDefinition):
     """
     name = 'zato.labs.transitions.get-current-state-info'
     def_format = FORMAT.STATE
+    needs_state_info = True
 
     class SimpleIO:
-        input_required = ('format', 'object_type', AsIs('object_id'))
-        input_optional = ('def_name', 'def_version')
+        input_required = ('object_type', AsIs('object_id'))
+        input_optional = ('format', 'def_name', 'def_version', 'node_width', 'orientation', 'date_time_format', 'time_zone',
+            'highlight_color', Bool('include_force_stop'))
 
-    def _handle_json(self):
+    def handle(self):
+        self._get_handle()(self.environ.def_tag)
+
+    def _handle_def_json(self):
         return dumps(self.environ.sm.get_current_state_info(self.environ.object_tag, self.environ.def_tag))
-
-    def _handle_diagram(self):
-        raise NotImplementedError('TODO')
 
 # ################################################################################################################################

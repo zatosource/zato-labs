@@ -422,7 +422,7 @@ class StateMachine(object):
 
 # ################################################################################################################################
 
-    def can_transit(self, object_tag, state_new, def_tag, force=False):
+    def can_transition(self, object_tag, state_new, def_tag, force=False):
 
         # Obtain graph object's config
         config = self.config[def_tag]
@@ -460,28 +460,28 @@ class StateMachine(object):
 
 # ################################################################################################################################
 
-    def transit(self, object_tag, state_new, def_tag, server_ctx, user_ctx=None, force=False, raise_on_error=True):
+    def transition(self, object_tag, state_new, def_tag, server_ctx, user_ctx=None, force=False, raise_on_error=True):
 
         # Make sure this is a valid transition
-        can_transit, reason, state_current = self.can_transit(object_tag, state_new, def_tag, force)
+        can_transition, reason, state_current = self.can_transition(object_tag, state_new, def_tag, force)
 
-        if not can_transit:
+        if not can_transition:
             if raise_on_error:
                 raise TransitionError(reason)
             else:
-                return can_transit, reason, state_current, state_new
+                return can_transition, reason, state_current, state_new
 
         self.backend.set_current_state_info(
             object_tag, def_tag, dumps(self.get_transition_info(
                 state_current, state_new, object_tag, def_tag, server_ctx, user_ctx, force)))
 
-        return can_transit, reason, state_current, state_new
+        return can_transition, reason, state_current, state_new
 
 # ################################################################################################################################
 
-    def mass_transit(self, items):
+    def mass_transition(self, items):
         for item in items:
-            self.transit(*item)
+            self.transition(*item)
 
 # ################################################################################################################################
 
@@ -671,8 +671,8 @@ class transition_to(object):
             self.def_tag = self.state_machine.get_def_tag(
                 self.object_type, self.object_id, self.state_new, self.def_name, self.def_version)
 
-        can_transit, reason, _ = self.state_machine.can_transit(self.object_tag, self.state_new, self.def_tag, self.force)
-        if not can_transit:
+        can_transition, reason, _ = self.state_machine.can_transition(self.object_tag, self.state_new, self.def_tag, self.force)
+        if not can_transition:
             raise TransitionError(reason)
 
         return self.ctx
@@ -681,7 +681,7 @@ class transition_to(object):
 
         if not exc_type:
             # TODO: Use server_ctx in .transit
-            self.state_machine.transit(
+            self.state_machine.transition(
                 self.object_tag, self.state_new, self.def_tag, None, self.ctx, self.force)
             return True
 
