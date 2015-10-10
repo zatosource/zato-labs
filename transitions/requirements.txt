@@ -1,3 +1,4 @@
+blockdiag==1.5.3
 bunch==1.0.1
 configobj==5.0.6
 coverage==3.7.1

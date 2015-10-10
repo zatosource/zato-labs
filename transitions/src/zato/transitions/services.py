@@ -12,7 +12,7 @@ from json import dumps, loads
 from bunch import bunchify
 
 # zato-labs
-from zato_transitions import CONSTANTS, Definition, setup_server_config, StateMachine, transition_to, yield_definitions
+from zato_transitions import CONST, Definition, setup_server_config, StateMachine, transition_to, yield_definitions
 
 # Zato
 from zato.server.connection.http_soap import BadRequest
@@ -21,8 +21,8 @@ from zato.server.service import AsIs, Bool, Service
 # ################################################################################################################################
 
 class FORMAT:
-    DEFINITION = ['diagram', 'json', 'text']
-    STATE = ['diagram', 'json']
+    DEFINITION = ['diagram-def', 'diagram-png', 'json', 'text']
+    STATE = ['diagram-def', 'diagram-png', 'json']
 
 # ################################################################################################################################
 
@@ -30,8 +30,10 @@ class Testing(Service):
     name = 'xzato.labs.bizstates.definition.testing'
 
     def handle(self):
-        with transition_to(self, 'order', 1, 'canceled'):
-            pass
+
+        for x in range(50):
+            with transition_to(self, 'order', x, 'canceled'):
+                pass
 
 # ################################################################################################################################
 
@@ -47,7 +49,7 @@ class Base(Service):
 
         req = self.request.input
         if req and 'object_type' in req:
-            self.environ.def_version = req.get('def_version', CONSTANTS.DEFAULT_GRAPH_VERSION)
+            self.environ.def_version = req.get('def_version', CONST.DEFAULT_GRAPH_VERSION)
             self.environ.object_tag = StateMachine.get_object_tag(req.object_type, req.object_id)
             self.environ.def_tag = self.environ.sm.get_def_tag(
                 req.object_type, req.object_id, req.get('state_new'), req.get('def_name'), self.environ.def_version)
@@ -154,14 +156,12 @@ class GetDefinitionList(Base, JSONProducer):
 
 class FormatBase(Base):
 
-    class SimpleIO:
-        input_required = ('format',)
-
     def_format = None
 
     def validate_input(self):
-        if self.request.input.format not in self.def_format:
-            raise BadRequest(self.cid, 'Format is not one of `{}`'.format(', '.join(self.def_format)))
+        format = self.request.input.get('format')
+        if format and format not in self.def_format:
+            raise BadRequest(self.cid, 'Format is not one of `{}`\n'.format(', '.join(self.def_format)))
 
 # ################################################################################################################################
 
@@ -171,18 +171,20 @@ class GetDefinition(FormatBase):
     name = 'xzato.labs.bizstates.transition.get-definition'
     def_format = FORMAT.DEFINITION
 
-    class SimpleIO(FormatBase.SimpleIO):
-        input_required = FormatBase.SimpleIO.input_required + ('def_name',)
-        input_optional = ('def_version',)
+    class SimpleIO:
+        input_optional = ('format', 'def_version', 'node_width', 'node_width', 'orientation')
 
     def handle(self):
         def_name = Definition.get_name(self.request.input.def_name)
-        def_tag = Definition.get_tag(def_name, self.request.input.get('def_version') or CONSTANTS.DEFAULT_GRAPH_VERSION)
+        def_tag = Definition.get_tag(def_name, self.request.input.get('def_version') or CONST.DEFAULT_GRAPH_VERSION)
 
         if def_tag not in self.environ.sm.config:
-            raise BadRequest(self.cid, 'No such definition `{}`'.format(def_tag))
+            raise BadRequest(self.cid, 'No such definition `{}`\n'.format(def_tag))
 
-        self.response.payload = getattr(self, '_handle_def_{}'.format(self.request.input.format))(def_tag)
+        format = self.request.input.get('format') or 'diagram-png'
+        format = format.replace('-', '_')
+
+        getattr(self, '_handle_def_{}'.format(format))(def_tag)
 
     def _handle_def_text(self, def_tag):
         return str(self.environ.sm.config[def_tag].def_)
@@ -190,8 +192,18 @@ class GetDefinition(FormatBase):
     def _handle_def_json(self, def_tag):
         return dumps(self.environ.sm.config[def_tag].orig_config)
 
-    def _handle_def_diagram(self):
-        raise NotImplementedError('TODO')
+    def _get_def_diagram(self, def_tag, needs_png=True, mime_type='image/png'):
+        png, diag_def = self.environ.sm.get_def_diagram(
+            def_tag, self.request.input.get('node_width'), self.request.input.get('orientation'))
+
+        self.response.payload = png if needs_png else diag_def
+        self.response.content_type = mime_type
+
+    def _handle_def_diagram_png(self, def_tag):
+        self._get_def_diagram(def_tag)
+
+    def _handle_def_diagram_def(self, def_tag):
+        self._get_def_diagram(def_tag, False, 'text/plain')
 
 # ################################################################################################################################
 
@@ -201,8 +213,8 @@ class GetCurrentStateInfo(FormatBase):
     name = 'xzato.labs.bizstates.transition.get-current-state-info'
     def_format = FORMAT.STATE
 
-    class SimpleIO(FormatBase.SimpleIO):
-        input_required = FormatBase.SimpleIO.input_required + ('object_type', AsIs('object_id'))
+    class SimpleIO:
+        input_required = ('format', 'object_type', AsIs('object_id'))
         input_optional = ('def_name', 'def_version')
 
     def handle(self):
@@ -215,3 +227,4 @@ class GetCurrentStateInfo(FormatBase):
         raise NotImplementedError('TODO')
 
 # ################################################################################################################################
+

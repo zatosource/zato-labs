@@ -12,6 +12,17 @@ from json import dumps, loads
 from logging import getLogger
 from uuid import uuid4
 
+# Blockdiag
+from blockdiag.parser import parse_string
+from blockdiag.builder import ScreenNodeBuilder
+from blockdiag.drawer import DiagramDraw
+from blockdiag.imagedraw import png
+from blockdiag.imagedraw.png import setup as png_setup
+from blockdiag.noderenderer import beginpoint, endpoint, roundedbox
+from blockdiag.noderenderer.beginpoint import setup as beginpoint_setup
+from blockdiag.noderenderer.endpoint import setup as endpoint_setup
+from blockdiag.noderenderer.roundedbox import setup as roundedbox_setup
+
 # Bunch
 from bunch import Bunch
 
@@ -24,10 +35,35 @@ logger = getLogger(__name__)
 
 # ################################################################################################################################
 
-class CONSTANTS:
+png_setup(png)
+
+beginpoint_setup(beginpoint)
+endpoint_setup(endpoint)
+roundedbox_setup(roundedbox)
+
+# ################################################################################################################################
+
+class CONST:
     NO_SUCH_NODE = 'NO_SUCH_NODE'
+    DEFAULT_DIAG_NODE_WIDTH = 200
+    DEFAULT_DIAG_ORIENTATION = 'portrait'
     DEFAULT_GRAPH_VERSION = 1
     DEFINITION_PREFIX = 'biz_states_'
+    DIAG_ORIENTATION = ['portrait', 'landscape']
+    DIAG_DEF_TEMPLATE = """
+blockdiag {{
+   orientation = {};
+   default_shape = roundedbox;
+   node_width = {};
+
+   begin [shape = beginpoint];
+   end [shape = endpoint];
+
+%s
+
+%s
+}}
+""".lstrip()
 
 # ################################################################################################################################
 
@@ -42,7 +78,7 @@ def validate_from_to(func):
     def _inner(self, from_, to):
         for node in (from_, to):
             if node not in self.nodes:
-                return AddEdgeResult(False, CONSTANTS.NO_SUCH_NODE, node)
+                return AddEdgeResult(False, CONST.NO_SUCH_NODE, node)
         return func(self, from_, to)
     return _inner
 
@@ -52,7 +88,7 @@ def yield_definitions(service):
     for name, data in service.server.user_config.user.items():
 
         # Pick up only our definitions ..
-        if name.startswith(CONSTANTS.DEFINITION_PREFIX):
+        if name.startswith(CONST.DEFINITION_PREFIX):
             yield name, data
 
 # ################################################################################################################################
@@ -62,7 +98,7 @@ def setup_server_config(service):
     for name, data in yield_definitions(service):
         # .. parse the definition and append to the state machine's config dict
         item = ConfigItem()
-        item.parse_config_dict({name.replace(CONSTANTS.DEFINITION_PREFIX, ''):data})
+        item.parse_config_dict({name.replace(CONST.DEFINITION_PREFIX, ''):data})
         config[item.def_.tag] = item
 
     service.server.user_ctx.zato_state_machine = StateMachine(config, RedisBackend(service.kvdb.conn))
@@ -107,7 +143,7 @@ class Node(object):
 class Definition(object):
     """ A graph of nodes and edges connecting them. Edges can be cyclic and graphs can have more than one root.
     """
-    def __init__(self, name=None, version=CONSTANTS.DEFAULT_GRAPH_VERSION):
+    def __init__(self, name=None, version=CONST.DEFAULT_GRAPH_VERSION):
         self.name = Definition.get_name(name)
         self.version = version
         self.tag = self.get_tag(self.name, self.version)
@@ -200,6 +236,7 @@ class ConfigItem(object):
         self.def_ = Definition()
         self.objects = []
         self.force_stop = []
+        self.def_config = {}
         self.orig_config = {}
 
     def _add_nodes_edges(self, config, add_nodes=True):
@@ -224,27 +261,27 @@ class ConfigItem(object):
     def parse_config_dict(self, orig_config):
 
         # So that the original, possibly still kept in a service's self.user_config, is not modified
-        config = deepcopy(orig_config)
+        self.def_config = deepcopy(orig_config)
 
         # Handy to keep it around because higher level layers may wish to consult it
         self.orig_config.update(deepcopy(orig_config))
 
         # There will be exactly one key
-        orig_key = config.keys()[0]
+        orig_key = self.def_config.keys()[0]
         def_name = Definition.get_name(orig_key)
-        config[def_name] = config[orig_key]
+        self.def_config[def_name] = self.def_config[orig_key]
         self.def_.name = def_name
 
         # Version is optional
-        self.def_.version = config[self.def_.name].pop('version', CONSTANTS.DEFAULT_GRAPH_VERSION)
+        self.def_.version = self.def_config[self.def_.name].pop('version', CONST.DEFAULT_GRAPH_VERSION)
 
         # Extend attributes that may either strings or lists in config
-        self._extend_list(config, 'objects')
-        self._extend_list(config, 'force_stop')
+        self._extend_list(self.def_config, 'objects')
+        self._extend_list(self.def_config, 'force_stop')
 
         # Collect nodes and edges
-        self._add_nodes_edges(config)
-        self._add_nodes_edges(config, False)
+        self._add_nodes_edges(self.def_config)
+        self._add_nodes_edges(self.def_config, False)
 
         # Set correct tag
         self.def_.tag = Definition.get_tag(self.def_.name, self.def_.version)
@@ -438,6 +475,70 @@ class StateMachine(object):
 
 # ################################################################################################################################
 
+    def get_diagram_safe_name(self, name):
+        return name.strip().lower().replace(' ', '_')
+
+# ################################################################################################################################
+
+    def get_def_diagram(self, def_tag, node_width=None, orientation=None):
+
+        node_width = node_width or CONST.DEFAULT_DIAG_NODE_WIDTH
+        orientation = orientation or CONST.DEFAULT_DIAG_ORIENTATION
+
+        config_item = self.config[def_tag]
+        name = config_item.def_config.keys()[0] # There will be one key only
+        config = config_item.def_config[name]
+
+        labels = []
+        edges = []
+
+        for from_, to in config.items():
+            from_safe = self.get_diagram_safe_name(from_)
+            if isinstance(to, basestring):
+                to = [to]
+
+            # Regular edges
+            for to in to:
+                to_safe = self.get_diagram_safe_name(to)
+                edges.append('{} -> {};'.format(from_safe, to_safe))
+
+                # Labels separately so nodes can contain whitespace
+
+                from_label = '{} [label = "{}"];'.format(from_safe, from_)
+                if from_label not in labels:
+                    labels.append(from_label)
+
+                to_label = '{} [label = "{}"];'.format(to_safe, to)
+                if to_label not in labels:
+                    labels.append(to_label)
+
+                # Leaves
+                if to_safe not in config:
+                    edges.append('{} -> end;'.format(to_safe))
+
+            # Roots
+            if from_safe in config_item.def_.roots:
+                edges.append('begin -> {};'.format(from_safe))
+
+        labels = '\n'.join(sorted('   {}'.format(elem) for elem in labels))
+        edges = '\n'.join(sorted('   {}'.format(elem) for elem in edges))
+
+        diag_def = CONST.DIAG_DEF_TEMPLATE.format(orientation, node_width)
+        diag_def = diag_def % (labels, edges)
+
+        try:
+            diagram = ScreenNodeBuilder.build(parse_string(diag_def))
+            draw = DiagramDraw('png', diagram)
+            draw.draw()
+        except Exception:
+            msg = 'Could not obtain diagram from definition:\n{}'.format(diag_def)
+            logger.warn(msg)
+            raise
+
+        return draw.save(), diag_def
+
+# ################################################################################################################################
+
 class TransitionInfo(Bunch):
     def __init__(self, ctx):
         self.update(ctx or {})
@@ -476,7 +577,7 @@ class transition_to(object):
                 raise TransitionError(msg)
 
             self.def_tag = self.state_machine.get_def_tag(
-                self, self.object_type, self.object_id, self.state_new, self.def_name, self.def_version)
+                self.object_type, self.object_id, self.state_new, self.def_name, self.def_version)
 
         can_transit, reason, _ = self.state_machine.can_transit(self.object_tag, self.state_new, self.def_tag, self.force)
         if not can_transit:
