@@ -54,8 +54,11 @@ roundedbox_setup(roundedbox)
 
 class CONST:
     NO_SUCH_NODE = 'NO_SUCH_NODE'
+    DEFAULT_DIAG_HIGHLIGHT_COLOR = 'bccc73'
     DEFAULT_DIAG_NODE_WIDTH = 200
     DEFAULT_DIAG_ORIENTATION = 'portrait'
+    DEFAULT_DIAG_DT_FORMAT = '%a %d/%m/%y %H:%M:%S'
+    DEFAULT_DIAG_TZ = 'UTC'
     DEFAULT_GRAPH_VERSION = 1
     DEFINITION_PREFIX = 'biz_states_'
     DIAG_ORIENTATION = ['portrait', 'landscape']
@@ -64,10 +67,13 @@ blockdiag {
    orientation = $orientation;
    default_shape = box;
    node_width = $node_width;
+   class emphasis [color="#$highlight_color", style = dashed];
 
-class emphasis [color="#bcCc73", style = dashed];
-
+group {
+  orientation = portrait;
+  color = "#ccccdd";
 $forced_stop
+}
 
    begin [shape = beginpoint];
    end [shape = endpoint];
@@ -500,18 +506,23 @@ class StateMachine(object):
         local_tz = pytz.timezone(time_zone)
         return local_tz.normalize(value.astimezone(local_tz)).strftime(date_time_format)
 
-    def get_name_state(self, name, state_info, time_zone, date_time_format):
+    def get_name_state(self, name, state_info, time_zone, date_time_format, is_stop):
         if not state_info:
             return name
 
         history = self.get_history(state_info.object_tag, state_info.def_tag)
 
+        is_stop=' (s)' if is_stop else ''
+        tz_sep = '\n' if len(time_zone) > 5 else '' # So that for instance America/New_York fits in a single line
+
         if name == state_info.state_current:
-            return '{}{}\n{} {}'.format(
-                name,
-                ' (f)' if state_info.is_forced else '',
-                self.reformat_date(state_info.transition_ts_utc, time_zone, date_time_format),
-                time_zone)
+            return '{name}{is_stop}{is_forced}\n{date} {tz_sep}{time_zone}'.format(
+                name=name,
+                is_stop=is_stop,
+                is_forced=' (f)' if state_info.is_forced else '',
+                date=self.reformat_date(state_info.transition_ts_utc, time_zone, date_time_format),
+                tz_sep=tz_sep,
+                time_zone=time_zone)
 
         elif name == state_info.state_old:
 
@@ -519,16 +530,18 @@ class StateMachine(object):
             # for this object and look up the penultimate element which points to the previous state.
             previous = history[-2]
 
-            return '{}{}\n{} {}'.format(
-                name,
-                ' (f)' if previous['is_forced'] else '',
-                self.reformat_date(previous['transition_ts_utc'], time_zone, date_time_format),
-                time_zone)
+            return '{name}{is_stop}{is_forced}\n{date} {tz_sep}{time_zone}'.format(
+                name=name,
+                is_stop=is_stop,
+                is_forced=' (f)' if previous['is_forced'] else '',
+                date=self.reformat_date(previous['transition_ts_utc'], time_zone, date_time_format),
+                tz_sep=tz_sep,
+                time_zone=time_zone)
 
         return name
 
     def get_diagram_label(self, name, state_info, time_zone, date_time_format, is_stop=False):
-        item = '{name_safe} [label="{name_state}{is_stop}" {options}]'
+        item = '{name_safe} [label="{name_state}" {options}]'
 
         if state_info and name in (state_info.state_current, state_info.state_old):
             options = ', class="emphasis"'
@@ -537,17 +550,19 @@ class StateMachine(object):
 
         return item.format(
             name_safe=self.get_diagram_safe_name(name),
-            name_state=self.get_name_state(name, state_info, time_zone, date_time_format),
-            is_stop=' (s)' if is_stop else '',
+            name_state=self.get_name_state(name, state_info, time_zone, date_time_format, is_stop),
             options=options)
 
 # ################################################################################################################################
 
-    def get_diagram(self, def_tag, node_width=None, orientation=None, needs_highlight=False, state_info=None, time_zone='UTC',
-            date_time_format='%a %d/%m/%y %H:%M:%S'):
+    def get_diagram(self, def_tag, node_width=None, orientation=None, highlight_color=None, state_info=None, time_zone=None,
+            date_time_format=None, include_force_stop=True):
 
         node_width = node_width or CONST.DEFAULT_DIAG_NODE_WIDTH
         orientation = orientation or CONST.DEFAULT_DIAG_ORIENTATION
+        highlight_color = highlight_color.replace('#', '') if highlight_color else CONST.DEFAULT_DIAG_HIGHLIGHT_COLOR
+        time_zone = time_zone or CONST.DEFAULT_DIAG_TZ
+        date_time_format = date_time_format or CONST.DEFAULT_DIAG_DT_FORMAT
 
         config_item = self.config[def_tag]
         name = config_item.def_config.keys()[0] # There will be one key only
@@ -587,15 +602,21 @@ class StateMachine(object):
                 edges.append('begin -> {};'.format(from_safe))
 
         # Forced stops
-        for name in config_item.force_stop:
-            forced_stop.append(self.get_diagram_label(name, state_info, time_zone, date_time_format, True))
+        if include_force_stop:
+            for name in config_item.force_stop:
+                forced_stop.append(self.get_diagram_label(name, state_info, time_zone, date_time_format, True))
 
         forced_stop = '\n'.join(sorted('   {}'.format(elem) for elem in forced_stop))
         labels = '\n'.join(sorted('   {}'.format(elem) for elem in labels))
         edges = '\n'.join(sorted('   {}'.format(elem) for elem in edges))
 
-        diag_def = Template(CONST.DIAG_DEF_TEMPLATE).safe_substitute(orientation=orientation, node_width=node_width,
-            forced_stop=forced_stop, labels=labels, edges=edges)
+        diag_def = Template(CONST.DIAG_DEF_TEMPLATE).safe_substitute(
+            highlight_color=highlight_color,
+            orientation=orientation,
+            node_width=node_width,
+            forced_stop=forced_stop,
+            labels=labels,
+            edges=edges)
 
         try:
             diagram = ScreenNodeBuilder.build(parse_string(diag_def))
