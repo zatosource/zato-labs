@@ -14,7 +14,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import os
 from setuptools import setup, find_packages
 
-version = '0.1a1'
+version = '1.0'
 
 LONG_DESCRIPTION = ''
 
@@ -23,13 +23,13 @@ def parse_requirements(requirements):
         return [line.strip('\n') for line in f if line.strip('\n') and not line.startswith('#')]
 
 setup(
-      name = 'zato-transitions',
+      name = 'zato-bst',
       version = version,
 
       author = 'Dariusz Suchojad',
       author_email = 'dsuch at zato.io',
       url = 'https://zato.io/docs',
-      description = 'Zato Transitions - a flexible state machine for in-flight business processess',
+      description = 'Zato business state transitions - a flexible state machine for business processess',
       long_description = LONG_DESCRIPTION,
       platforms = ['OS Independent'],
       license = 'GNU Lesser General Public License v3 (LGPLv3)',
