@@ -1,5 +1,5 @@
 dist
-transitions-env/
+bst-env/
 .coverage
 *.egg-info
 *.pyc

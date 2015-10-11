@@ -1,7 +1,7 @@
 
 .PHONY: test
 
-ENV_NAME=transitions-env
+ENV_NAME=bst-env
 BIN_DIR=$(CURDIR)/$(ENV_NAME)/bin
 
 default: install
@@ -16,11 +16,11 @@ clean:
 	rm -rf $(CURDIR)/$(ENV_NAME)
 	rm -rf $(CURDIR)/build
 	rm -rf $(CURDIR)/dist
-	rm -rf $(CURDIR)/src/zato_transitions.egg-info
+	rm -rf $(CURDIR)/src/zato_bst.egg-info
 	find $(CURDIR) -name '*.pyc' -exec rm {} \;
 
 test:
 	$(MAKE) install
-	$(BIN_DIR)/nosetests $(CURDIR)/test/zato/transitions --with-coverage --cover-package=zato.transitions --nocapture
-	$(BIN_DIR)/flake8 $(CURDIR)/src/zato/transitions --count
-	$(BIN_DIR)/flake8 $(CURDIR)/test/zato/transitions --count
+	$(BIN_DIR)/nosetests $(CURDIR)/test/zato/bst --with-coverage --cover-package=zato.bst --nocapture
+	$(BIN_DIR)/flake8 $(CURDIR)/src/zato/bst --count
+	$(BIN_DIR)/flake8 $(CURDIR)/test/zato/bst --count
