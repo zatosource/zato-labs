@@ -18,10 +18,11 @@ from bunch import bunchify
 from fakeredis import FakeRedis
 
 # Zato
-from zato.transitions import AddEdgeResult, ConfigItem, CONST, Definition, Node, RedisBackend, StateBackendBase, StateMachine
+from zato.transitions import AddEdgeResult, ConfigItem, CONST, Definition, Node, parse_pretty_print, RedisBackend, \
+     StateBackendBase, StateMachine
 
 EXPECTED_DIAGRAM_PNG = """
-iVBORw0KGgoAAAANSUhEUgAABGAAAANICAIAAAAHNA4rAABSkElEQVR4nO3dv5IjSX4neI9/AAJA
+iVBORw0KGgoAAAANSUhEUgAABGAAAANICAIAAAAHNA4rAABSgklEQVR4nO3dv5IjSX4neI9/AAJA
 VWe3LWdrqsxOoHAPQBu7Jxg+QQtUKa1GiRRWu5VpPW/CfgOe2a6wGo/cpdlJK6wZhW6bLo7Vn67K
 rEQGIk7wQFQ0kJmFyk4UEIHPx2hDJBJ/PNHhBf/Gz90jaZomAAAAEEJ67AYAAACcCgEJAACgJSAB
 AAC0BCQAAICWgAQAANASkAAAAFoCEgAAQEtAAgAAaAlIAAAALQEJAACgJSABAAC0BCQAAICWgAQA
@@ -335,64 +336,64 @@ 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
-dgAAB9ffRzHYGgROmAoSAMBh9UNR/F+rvOBkCUgAAAe0WzKSkeCUCUgAAIe1O6HOFDs4WdYgAXAS
-nE0/Kf5zPK67Pk+f87CItWdCQALgVBh8nIgkSfy3OJB+IvIhD4s0ez5MsQMAAGgJSAAAAC0BCQAA
-oCUgAQAAtAQkAACAloAEAADQEpAAAABaAhIAAEBLQAIAAGgJSAAAAK382A0AAI4vSZK7fmya5os3
-B06CfnGeVJAAgDtHe0aBnDP94jwJSAAAAC0BCQAI4baT4k6Tg35xhgQkAACAloAEALT6p8adJodI
-vzg3AhIAAEBLQAIAPoonyJ0mhz794qy4DhIAZ2Hreibcz8e1v0EPmv2H/iw+rv0Nul8ISACci0F/
-YXOakiTpjquBjp71Cx7d0PuFKXYAAA9X17X5V7Bl0P1CBQkA4OHW63WSJGmadmfKh3jKHB7XoPuF
-ChIAwMNdX19XVbVer7tT5sCg+4UKEgDjN7ivZwbk8vJyMpkURVEURQghTdMwkJPl+gWHM9x+EQQk
-AEbPKJCDevv2bVmWZVmGEJKNpmlOfCyoX3BQA+0XkYAEwPgZC3I4r1+/rqoqhJCmaZZl3Vjw2O36
-NP2CwxluvwgCEgDnwECQw3n16lUIIc/zoijyPM+ybCinyfULDme4/SIISAAAv8br16+LopjNZvP5
-fIjr0eEQBt0v7GIHwPgN67uZYXn//v3V1dVqtaqqKg4Eh3K8DaWdDNFw+0UQkAAYtwF9JTNQ3Shw
-a0fjUz72TrltjMMQ+0VHQAJg5AbxfcxwVVXVjQLD5ng7/aPu9FvIoA20X0QCEgDAw63X6+4c+VDG
-f3Bog+4XAhIAwMMN8QQ5HNqg+4WABADwqwxu/AdfwHD7hYAEAADQch0kAABGJV6Q9LMqGHs+pbvU
-6T2PfMC7c1IEJAAABqALJ+FT8eNw4aRpmn4zHuvdt3LX/n8phyAgAcA5SpKkG+p1I7D+KK371a2P
-hGOJR2M8LMN+0WK37HPXs/rH+T3PusvWu/c7Ubi7+/QfFv+ufWIYhyMgAcCZ6pLPVgTauqcjHd3q
-7/7u747dhPN1a7QIvwwqdx3YtwaSrSx017Puas9usuo/vQt1exKTjkVAAgA+2hqQxR+N0u7x3Xff
-vXjx4sWLF8+ePbu4uFgsFpPJJE3TOCA+dutGaLcas8/nfOtj9l9x9IX1+93nxip+PQEJAPioPxRz
-ApsTtFuN2Sc/3PqYW2e+nc76Hx3wWGzzDQCE0JsdtFX6GOilHhmr/uqjuw7avt3H9CfCbaWs7s77
-nxXuKC71m7F/ttl6690niklfmAoSAJyjW8++76Yg6YjTceux+rDy0a3P2rpzz2ft+ZR9tt3bXaek
-6x2FgAQAwEjsbj03IENs8ygJSAAAjISMwa9nDRIAAEBLQAIAAGgJSAAAAC0BCQAAoCUgAQAAtAQk
-AACAloAEAADQEpAAAABaAhIAAEBLQAIAAGgJSAAAAC0BCQDgV0mS5NhNgJMz3H4hIAEAPFyapmEz
-FhzuiBAe16D7RX7sBgDAFzK4L2kGIcuyLMvSNE2SZIjH2BDbzOkbdL8QkAAYufjdfHl5eXl5+ebN
-m5cvX/74448//PDDTz/99OrVq3fv3l1fX1dVtV6v4+ObpjlqezlR3SAvy7I8z6fT6XK5/Prrr/M8
-z/M8jgXDcE6Z6xef6/vvv//222+P3YqTM7J+EQlIAIxZkiRxYJckSZqm8St8MpmUZTmfz1erVQih
-KIqqquq6NgTkk+KBFAeCi8ViPp+XZTmZTLqxYDcEPOWxoH7xME+ePDl2E07UOPpFR0ACYPziHI/4
-/R1HgYvF4vr6OoQwmUxWq1VVVc3GsRvL6Uo24oE0n8+fPn26WCy6seCwJhTpF5/rm2++OXYTTtHI
-+kUQkAA4E91AcDabLZfLm5ubEMJ0Or26uorziOq6PnYbGYau5BITxcXFxXK5nM1m3UDw2A38DPrF
-Z3n+/Pmxm3C6xtQvBCQAxq9/drMsy6qqQghFUSyXy3iaPC60cJqcT4rjvP6ctOVyuVwuu5PlAzpT
-rl98rhcvXhy7CSdqTP0iCEgAnINuoUVRFGVZhhDiKfNuFGihBfvbWrczm83KsizLsiiKreUWJ06/
-+FwC0j1G0y+CgATA6MX16PHLuyiKEEK8MZ/PjQJ5mP5YMA4Hi6IoiqIbBZ7+WFC/eIBnz54duwkn
-bQT9IhKQABi/+K3c7TYbv7/rjRCCZejsr5sslG50W3UNazG6fvG5Li4ujt2E0zWafhEEJADORzy7
-Gb+nsyxreo7dNIYn+aXBDQE7+sX+FovFsZtw6sbRLwQkAM5C0rsKR7K5CIwhIL9SN3FoWDOIOvrF
-Z5lMJsduwjAMvV8ISACckW7dRf8L23CQB9gd8w1uFNjRL/YUpyNyj3H0CwEJgPOy9W0dx4XHagyD
-NqYjR7/Yh89kHyP4lAQkAM7aCL7L4dHpF7fysZwJhUIAAICWgAQAANASkAAAAFoCEgAAQEtAAgAA
-aAlIAAAALdt8A+fOtq2nw38LAI5OQALOnavFAwAdU+wAAABaAhIAAEBLQAIAAGgJSAAAAC0BCQAA
-oCUgAQAAtAQkAACAloAEAADQEpAAAABaAhIAAEBLQAIAAGgJSAAAAC0BCQAAoCUgAQAAtAQkAACA
-loAEAADQEpAAAABaAhIAAEBLQAIAAGgJSAAAAC0BCQAAoCUgAQAAtJKmaY7dBoAvKkmSu37ln0QA
-OHMqSMDZuSsFSUcAgIAEAADQEpCAc7RbLHpw+SjZ+NWNAgCOT0AC+FVMzAOAMcmP3QCA42iapiv7
-3Bpy+r+Nt/s3th4DAIyDChLALfpBKEmS3RtbjwEAxkFAAs5XzDb3JBwFIgA4N6bYAeeon3zumWin
-OgQA58aFYoHzclcc6u6v6zps9qbrfnvXMqStEpN/UQFg6AQk4Ix8ctVQfMB6ve6Sj1l2AHBWrEEC
-zsU+eyrE32ZZVtf1J1coAQDjYw0ScEb6aeeu2XFxEl1VVWmapmna37AOABg9FSTgLGwlnN3As3XP
-bDarqmq9XjcbB28iAHACBCTgXHzy6q5b+zd8+PDh5uZGRgKAs2KKHTB+D8s2l5eX3ROzLItXiTXX
-DgDGTUACuN3bt29DCEmSxJVIWxt/AwCjJCAB3O7NmzdpmmZZlud5f8MGAGDEBCRg5B68fOjt27eT
-yWQ6nU4mkzzPu9cRkwBgxGzSAJyLrT0Ydm3t4vDzzz9fXl5eX193WzV8mXYCAEckIAHj1zTN9fX1
-1j27j+n/+Pd///eXl5cfPnxYrVZVVcXrxspIADB6ptgBZ6GbHde/IOytj4zlo+vr69VqFWtH0hEA
-nA8VJOBcvHr1KnxqBVH87d/8zd/UPdIRAJwPAQk4F0mS/Nu//Vu8sRuTujv/+q//Ov0lG3wDwPkw
-xQ44CzHkpGn6r//6r3/84x//8i//cjfz/NVf/VVRFHHnurh5XVEUWZbJSABwPgQkYPy6dJTn+WQy
-mc1m//AP//DHP/7x5cuXb968ef/+/Wq1qus6TdPJZLJYLObzefzf2WwW9/iWkQDgTAhIwFlIkiTL
-sqIoptPpfD5/8uTJ1dXVzc1NCKEoiuvr6xiQ4m8vLi6ePn365MmT+Xw+nU5jHUk6AoBzICABIxeD
-TawgFUUxm80Wi0XcoS6EUBTF+/fv+wFpsVg8ffr066+/fvr06WKxmM1mRVF0FSQxCQDGTUACzkI3
-xW46nS6Xy7quQwhFUZRleXl52Z9iF+tLT58+/eqrr5bL5XQ67abYHfuPAAAOTkACzkIMSFmWTSaT
-uGd3F4c+fPhwc3MTA1IsMcU1SMvlsizLyWTS7dNw7D8CADg4AQkYv3h92LgMqbsny7I4oW61WsWr
-wXYJajqdzmaz/kZ23Ty9o/4dAMDBCUjAWeiyTcxI3Y52Nzc3VVXFq8F20/CKoiiKIs/zLMtiOrL6
-CADOROLy8MD5aDbqjVg7ind2u4HHOXX9q8RKRwBwJgQk4LzEf/SaHfG3yY5gZh0AnBMBCTg73b97
-XVjq/3YrFElHAHBWBCTgfN3zD6BcBADnSUACAABopcduAAAAwKkQkAAAAFoCEgAAQEtAAgAAaAlI
-AAAALQEJAACgJSABAAC0BCQAAICWgAQAANASkAAAAFoCEgAAQEtAAgAAaAlIAAAALQEJAACgJSAB
-AAC0BCQAAICWgAQAANASkAAAAFoCEgAAQEtAAgAAaAlIAAAALQEJAACgJSABAAC0BCQAAICWgAQA
-ANASkAAAAFoCEgAAQEtAAgAAaAlIAAAALQEJAACgJSABAAC0BCQAAICWgAQAANASkAAAAFoCEgAA
-QEtAAgAAaAlIAAAALQEJAACgJSABAAC0/n/Yr9OhpYYGVwAAAABJRU5ErkJggg==
+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
 """.strip()
 
 EXPECTED_DIAGRAM_DEF = """blockdiag {
@@ -430,8 +431,6 @@ Sat 10/10/15 13:20:30 EST" , class="emphasis"]
    client_confirmed -> end;
    client_rejected -> updated;
    new -> submitted;
-   qa -> end;
-   qa -> end;
    qa -> new;
    qa -> qa;
    qa -> ready;
@@ -671,7 +670,7 @@ class DefinitionTestCase(TestCase):
 
 class ConfigItemTestCase(TestCase):
 
-    def test_parse_config_string1(self):
+    def test_parse_config_ini1(self):
 
         config = """
             [Orders]
@@ -687,7 +686,7 @@ class ConfigItemTestCase(TestCase):
             """.strip()
 
         ci = ConfigItem()
-        ci.parse_config_string(config)
+        ci.parse_config_ini(config)
 
         self.assertListEqual(ci.objects, ['order', 'priority.order'])
         self.assertListEqual(ci.force_stop, ['canceled'])
@@ -711,7 +710,7 @@ class ConfigItemTestCase(TestCase):
         self.assertSetEqual(ci.def_.nodes['submitted'].edges, set(['ready']))
         self.assertSetEqual(ci.def_.nodes['updated'].edges, set(['ready']))
 
-    def test_parse_config_string2(self):
+    def test_parse_config_ini2(self):
 
         config = """
             [Orders Old]
@@ -728,7 +727,7 @@ class ConfigItemTestCase(TestCase):
             """.strip()
 
         ci = ConfigItem()
-        ci.parse_config_string(config)
+        ci.parse_config_ini(config)
 
         self.assertListEqual(ci.objects, ['order.old', 'priority.order'])
         self.assertListEqual(ci.force_stop, ['archived', 'deleted'])
@@ -836,7 +835,7 @@ class StateMachineTestCase(TestCase):
 
         self.conn = FakeRedis()
         self.ci = ConfigItem()
-        self.ci.parse_config_string(config)
+        self.ci.parse_config_ini(config)
 
         self.sm = StateMachine({self.ci.def_.tag:self.ci}, RedisBackend(self.conn))
         self.sm = StateMachine({self.ci.def_.tag:self.ci}, RedisBackend(self.conn))
@@ -870,5 +869,38 @@ class StateMachineTestCase(TestCase):
 
         self.assertEquals(EXPECTED_DIAGRAM_PNG, diag.encode('base64').strip())
         self.assertEquals(EXPECTED_DIAGRAM_DEF, diag_def)
+
+# ################################################################################################################################
+
+class ParsePrettyPrintTestCase(TestCase):
+    def test_parse_pretty_print(self):
+
+        orig_value = """
+Orders
+------
+
+New: Submitted
+Submitted: Ready
+Ready: Sent
+Sent: Confirmed, Rejected
+Rejected: Updated
+Updated: Ready
+Objects: Order, Priority order
+Force stop: Canceled, Interrupted
+""".strip()
+
+        expected_after_value = """
+[Orders]
+New=Submitted
+Submitted=Ready
+Ready=Sent
+Sent=Confirmed, Rejected
+Rejected=Updated
+Updated=Ready
+objects=Order, Priority order
+force_stop=Canceled, Interrupted
+""".strip()
+
+        self.assertEquals(expected_after_value, parse_pretty_print(orig_value))
 
 # ################################################################################################################################

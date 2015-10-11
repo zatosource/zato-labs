@@ -7,11 +7,13 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 # stdlib
 from copy import deepcopy
+from cStringIO import StringIO
 from datetime import datetime
 from json import dumps, loads
 from logging import getLogger
 from string import Template
 from uuid import uuid4
+import os
 
 # Arrow
 from arrow import get as arrow_get
@@ -60,8 +62,12 @@ class CONST:
     DEFAULT_DIAG_DT_FORMAT = '%a %d/%m/%y %H:%M:%S'
     DEFAULT_DIAG_TZ = 'UTC'
     DEFAULT_GRAPH_VERSION = 1
-    DEFINITION_PREFIX = 'biz_states_'
     DIAG_ORIENTATION = ['portrait', 'landscape']
+    PRETTY_PRINT_REPLACE = {
+        'Force stop:': 'force_stop=',
+        'Objects:': 'objects=',
+        'Version:': 'version=',
+    }
     DIAG_DEF_TEMPLATE = """
 blockdiag {
    orientation = $orientation;
@@ -103,12 +109,47 @@ def validate_from_to(func):
 
 # ################################################################################################################################
 
-def yield_definitions(service):
-    for name, data in service.server.user_config.user.items():
+def parse_pretty_print(value):
 
-        # Pick up only our definitions ..
-        if name.startswith(CONST.DEFINITION_PREFIX):
-            yield name, data
+    value = value.splitlines()
+    out = StringIO()
+    sep_idx = None
+
+    for idx, line in enumerate(value):
+        if line.strip().startswith('-'):
+            sep_idx = idx
+            break
+    else:
+        raise ValueError('Could not find header separator in `{}`'.format(value))
+
+    header = '[{}]'.format(value[sep_idx-1].strip())
+    items = [item.strip() for item in value[sep_idx+1:] if item]
+
+    out.write('{}\n'.format(header))
+
+    for item in items:
+        for source, target in CONST.PRETTY_PRINT_REPLACE.items():
+            if item.startswith(source):
+                item = item.replace(source, target)
+        item = item.replace(': ', '=', 1).replace(':', '=', 1).replace('= ', '=', 1)
+        out.write('{}\n'.format(item))
+
+    value = out.getvalue()
+    out.close()
+
+    return value.strip()
+
+# ################################################################################################################################
+
+def yield_definitions(service):
+
+    bst_dir = os.path.join(service.server.base_dir, 'config', 'repo', 'bst')
+    for name in os.listdir(bst_dir):
+        full_name = os.path.join(bst_dir, name)
+        value = ConfigObj(parse_pretty_print(open(full_name).read()).splitlines())
+
+        for key, value in value.items():
+            yield key, value
 
 # ################################################################################################################################
 
@@ -117,7 +158,7 @@ def setup_server_config(service):
     for name, data in yield_definitions(service):
         # .. parse the definition and append to the state machine's config dict
         item = ConfigItem()
-        item.parse_config_dict({name.replace(CONST.DEFINITION_PREFIX, ''):data})
+        item.parse_config_dict({name:data})
         config[item.def_.tag] = item
 
     service.server.user_ctx.zato_state_machine = StateMachine(config, RedisBackend(service.kvdb.conn))
@@ -305,7 +346,7 @@ class ConfigItem(object):
         # Set correct tag
         self.def_.tag = Definition.get_tag(self.def_.name, self.def_.version)
 
-    def parse_config_string(self, data):
+    def parse_config_ini(self, data):
 
         # Parse string as a list of lines and turn it into config
         self.parse_config_dict(ConfigObj(data.splitlines()))
@@ -594,11 +635,11 @@ class StateMachine(object):
                     labels.append(to_label)
 
                 # Leaves
-                if to_safe not in config:
+                if to not in config:
                     edges.append('{} -> end;'.format(to_safe))
 
             # Roots
-            if from_safe in config_item.def_.roots:
+            if from_ in config_item.def_.roots:
                 edges.append('begin -> {};'.format(from_safe))
 
         # Forced stops
