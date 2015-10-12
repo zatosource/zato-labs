@@ -439,7 +439,7 @@ class StateMachine(object):
     def get_object_tag(object_type, object_id):
         return '{}.{}'.format(object_type, object_id)
 
-    def get_def_tag(self, object_type, object_id, state_new, def_name, def_version):
+    def get_def_tag(self, object_type, object_id=None, state_new=None, def_name=None, def_version=None):
         def_tag = self.object_type_to_def[object_type]
 
         if len(def_tag) > 1:
