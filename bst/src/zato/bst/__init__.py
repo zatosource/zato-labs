@@ -479,19 +479,19 @@ class StateMachine(object):
 
         # Could be a a forced transition so if state_new exists at all in the definition, this is all good.
         if force and state_new in config.def_.nodes:
-            return True, '', state_current
+            return True, '', state_current, state_new
 
         # Perhaps it's a forced stop interrupting the process immediately.
         # However, unless forced to, we don't want to transition the same stop state.
         if state_new in config.force_stop:
-            return True, '', state_current
+            return True, '', state_current, state_new
 
         # If not found and it's not a root node, just return False and reason - we cannot work with unknown objects
         if not state_current_info and state_new not in config.def_.roots:
             msg = 'Object `{}` of `{}` not found and target state `{}` is not one of roots `{}`'.format(
                 object_tag, config.def_.tag, state_new, ', '.join(config.def_.roots))
             logger.warn(msg)
-            return False, msg, None
+            return False, msg, None, state_new
 
         # If there is no current state it means we want to transit to one of roots so the check below is skipped.
         if state_current:
@@ -500,9 +500,9 @@ class StateMachine(object):
                 msg = 'No transition found from `{}` to `{}` for `{}` in `{}`'.format(
                     state_current, state_new, object_tag, def_tag)
                 logger.warn(msg)
-                return False, msg, state_current
+                return False, msg, state_current, state_new
 
-        return True, '', state_current
+        return True, '', state_current, state_new
 
 # ################################################################################################################################
 

@@ -72,11 +72,11 @@ class SingleTransitionBase(Base):
     class SimpleIO:
         input_required = ('object_type', AsIs('object_id'), 'state_new')
         input_optional = ('def_name', 'def_version', Bool('force'))
-        output_required = (Bool('can_transit'), 'state_old', 'state_new')
+        output_required = (Bool('can_transition'), 'state_old', 'state_new')
         output_optional = ('reason',)
 
-    def _set_response(self, can_transit, reason, state_old, state_new):
-        self.response.payload.can_transit = can_transit
+    def _set_response(self, can_transition, reason, state_old, state_new):
+        self.response.payload.can_transition = can_transition
         self.response.payload.reason = reason
         self.response.payload.state_old = state_old
         self.response.payload.state_new = state_new
@@ -87,7 +87,7 @@ class CanTransition(SingleTransitionBase):
     name = 'labs.proc.bst.can-transition'
 
     def handle(self):
-        self._set_response(*self.environ.sm.can_transit(
+        self._set_response(*self.environ.sm.can_transition(
             self.environ.object_tag, self.request.input.state_new, self.environ.def_tag, self.request.input.force))
 
 # ################################################################################################################################
@@ -101,7 +101,7 @@ class Transition(SingleTransitionBase):
         input_optional = SingleTransitionBase.SimpleIO.input_optional + ('user_ctx',)
 
     def handle(self):
-        self._set_response(*self.environ.sm.transit(
+        self._set_response(*self.environ.sm.transition(
             self.environ.object_tag, self.request.input.state_new, self.environ.def_tag, 'zzz',
             self.request.input.get('user_ctx', None), self.request.input.force, False))
 
@@ -130,7 +130,7 @@ class GetHistory(SingleTransitionBase, JSONProducer):
         input_required = ('object_type', AsIs('object_id'))
 
     def handle(self):
-        self.response.payload = dumps(self.environ.sm.get_history(self.environ.object_tag, self.environ.def_tag))
+        self.response.payload = dumps(self.environ.sm.get_history(self.environ.object_tag, self.environ.def_tag), indent=2)
 
 # ################################################################################################################################
 
@@ -163,6 +163,7 @@ class GetDefinition(FormatBase):
     def_format = FORMAT.DEFINITION
 
     class SimpleIO:
+        input_required = ('def_name',)
         input_optional = ('format', 'def_version', 'node_width', 'orientation')
 
     def handle(self):
@@ -181,10 +182,10 @@ class GetDefinition(FormatBase):
         return getattr(self, '_handle_def_{}'.format(format))
 
     def _handle_def_text(self, def_tag):
-        return str(self.environ.sm.config[def_tag].def_)
+        self.response.payload = str(self.environ.sm.config[def_tag].def_)
 
     def _handle_def_json(self, def_tag):
-        return dumps(self.environ.sm.config[def_tag].orig_config)
+        self.response.payload = dumps(self.environ.sm.config[def_tag].orig_config, indent=2)
 
     def _get_def_diagram(self, def_tag, needs_png=True, mime_type='image/png', state_info=None):
 
