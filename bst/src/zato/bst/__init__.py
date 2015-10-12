@@ -128,6 +128,11 @@ def parse_pretty_print(value):
     out.write('{}\n'.format(header))
 
     for item in items:
+
+        # Ignore comments
+        if item.startswith('#'):
+            continue
+
         for source, target in CONST.PRETTY_PRINT_REPLACE.items():
             if item.startswith(source):
                 item = item.replace(source, target)

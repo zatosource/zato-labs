@@ -12,7 +12,7 @@ from json import dumps, loads
 from bunch import bunchify
 
 # zato-labs
-from zato_transitions import CONST, Definition, setup_server_config, StateMachine, yield_definitions
+from zato_bst import CONST, Definition, setup_server_config, StateMachine, yield_definitions
 
 # Zato
 from zato.server.connection.http_soap import BadRequest
@@ -27,9 +27,10 @@ class FORMAT:
 # ################################################################################################################################
 
 class Base(Service):
-    name = 'zato.labs.transitions.definition.base'
+    name = 'labs.proc.bst.definition.base'
 
     def before_handle(self):
+
         if 'zato_state_machine' not in self.server.user_ctx:
             setup_server_config(self)
 
@@ -46,7 +47,7 @@ class Base(Service):
 # ################################################################################################################################
 
 class JSONProducer(Service):
-    name = 'zato.labs.transitions.definition.json-producer'
+    name = 'labs.proc.bst.definition.json-producer'
 
     def after_handle(self):
         self.response.content_type = 'application/json'
@@ -57,7 +58,7 @@ class StartupSetup(Base):
     """ A start-up service to imports all definitions of transitions in state machines
     and creates runtime structures out of what is found.
     """
-    name = 'zato.labs.transitions.definition.startup-setup'
+    name = 'labs.proc.bst.definition.startup-setup'
 
     def handle(self):
         # Base before_handle does everything we need
@@ -66,7 +67,7 @@ class StartupSetup(Base):
 # ################################################################################################################################
 
 class SingleTransitionBase(Base):
-    name = 'zato.labs.transitions.single-transition-base'
+    name = 'labs.proc.bst.single-transition-base'
 
     class SimpleIO:
         input_required = ('object_type', AsIs('object_id'), 'state_new')
@@ -83,7 +84,7 @@ class SingleTransitionBase(Base):
 class CanTransition(SingleTransitionBase):
     """ Returns information if a given object can transit to a new state.
     """
-    name = 'zato.labs.transitions.can-transition'
+    name = 'labs.proc.bst.can-transition'
 
     def handle(self):
         self._set_response(*self.environ.sm.can_transit(
@@ -94,7 +95,7 @@ class CanTransition(SingleTransitionBase):
 class Transition(SingleTransitionBase):
     """ Performs a transition on an object.
     """
-    name = 'zato.labs.transitions.transition'
+    name = 'labs.proc.bst.transition'
 
     class SimpleIO(SingleTransitionBase.SimpleIO):
         input_optional = SingleTransitionBase.SimpleIO.input_optional + ('user_ctx',)
@@ -109,7 +110,7 @@ class Transition(SingleTransitionBase):
 class MassTransition(Base, JSONProducer):
     """ Performs transitions on a list of object.
     """
-    name = 'zato.labs.transitions.mass-transition'
+    name = 'labs.proc.bst.mass-transition'
 
     def handle(self):
         out = []
@@ -123,7 +124,7 @@ class MassTransition(Base, JSONProducer):
 class GetHistory(SingleTransitionBase, JSONProducer):
     """ Returns a history of transitions for a given object
     """
-    name = 'zato.labs.transitions.get-history'
+    name = 'labs.proc.bst.get-history'
 
     class SimpleIO:
         input_required = ('object_type', AsIs('object_id'))
@@ -136,10 +137,10 @@ class GetHistory(SingleTransitionBase, JSONProducer):
 class GetDefinitionList(Base, JSONProducer):
     """ Returns all definition as JSON.
     """
-    name = 'zato.labs.transitions.get-definition-list'
+    name = 'labs.proc.bst.get-definition-list'
 
     def handle(self):
-        self.response.payload = dumps([{name:data} for name, data in yield_definitions(self)])
+        self.response.payload = dumps([{name:data} for name, data in yield_definitions(self)], indent=2)
 
 # ################################################################################################################################
 
@@ -158,7 +159,7 @@ class FormatBase(Base):
 class GetDefinition(FormatBase):
     """ Returns a selected definition, as text, JSON or a diagram.
     """
-    name = 'zato.labs.transitions.get-definition'
+    name = 'labs.proc.bst.get-definition'
     def_format = FORMAT.DEFINITION
 
     class SimpleIO:
@@ -198,7 +199,7 @@ class GetDefinition(FormatBase):
                 self.environ.sm.get_current_state_info(self.environ.object_tag, self.environ.def_tag))
 
         # An empty string from a missing optional arguments gets turned into a proper boolean
-        include_force_stop = optional['include_force_stop']
+        include_force_stop = optional.get('include_force_stop', True)
         if isinstance(include_force_stop, basestring) and not include_force_stop:
             optional['include_force_stop'] = True
 
@@ -218,7 +219,7 @@ class GetDefinition(FormatBase):
 class GetCurrentStateInfo(GetDefinition):
     """ Returns information on an object's state in a given process as JSON or a diagram.
     """
-    name = 'zato.labs.transitions.get-current-state-info'
+    name = 'labs.proc.bst.get-current-state-info'
     def_format = FORMAT.STATE
     needs_state_info = True
 

@@ -18,7 +18,7 @@ from bunch import bunchify
 from fakeredis import FakeRedis
 
 # Zato
-from zato.transitions import AddEdgeResult, ConfigItem, CONST, Definition, Node, parse_pretty_print, RedisBackend, \
+from zato.bst import AddEdgeResult, ConfigItem, CONST, Definition, Node, parse_pretty_print, RedisBackend, \
      StateBackendBase, StateMachine
 
 EXPECTED_DIAGRAM_PNG = """
