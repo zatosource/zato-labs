@@ -778,8 +778,8 @@ class RedisBackendTestCase(TestCase):
         self.conn = FakeRedis()
 
     def test_patterns(self):
-        self.assertEquals(RedisBackend.PATTERN_STATE_CURRENT, 'zato:trans:state:current:{}')
-        self.assertEquals(RedisBackend.PATTERN_STATE_HISTORY, 'zato:trans:state:history:{}')
+        self.assertEquals(RedisBackend.PATTERN_STATE_CURRENT, 'zato:bst:state:current:{}')
+        self.assertEquals(RedisBackend.PATTERN_STATE_HISTORY, 'zato:bst:state:history:{}')
 
     def test_set_current_state_info(self):
         object_tag, def_tag, state_info = rand_string(3, True)
