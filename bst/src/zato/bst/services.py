@@ -232,7 +232,7 @@ class GetCurrentStateInfo(GetDefinition):
     def handle(self):
         self._get_handle()(self.environ.def_tag)
 
-    def _handle_def_json(self):
-        return dumps(self.environ.sm.get_current_state_info(self.environ.object_tag, self.environ.def_tag))
+    def _handle_def_json(self, _ignored):
+        self.response.payload = dumps(self.environ.sm.get_current_state_info(self.environ.object_tag, self.environ.def_tag))
 
 # ################################################################################################################################

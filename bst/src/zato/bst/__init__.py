@@ -389,8 +389,8 @@ class StateBackendBase(object):
 # ################################################################################################################################
 
 class RedisBackend(StateBackendBase):
-    PATTERN_STATE_CURRENT = 'zato:trans:state:current:{}'
-    PATTERN_STATE_HISTORY = 'zato:trans:state:history:{}'
+    PATTERN_STATE_CURRENT = 'zato:bst:state:current:{}'
+    PATTERN_STATE_HISTORY = 'zato:bst:state:history:{}'
 
     def __init__(self, conn):
         self.conn = conn
@@ -509,7 +509,7 @@ class StateMachine(object):
     def transition(self, object_tag, state_new, def_tag, server_ctx, user_ctx=None, force=False, raise_on_error=True):
 
         # Make sure this is a valid transition
-        can_transition, reason, state_current = self.can_transition(object_tag, state_new, def_tag, force)
+        can_transition, reason, state_current, _ = self.can_transition(object_tag, state_new, def_tag, force)
 
         if not can_transition:
             if raise_on_error:
@@ -533,9 +533,10 @@ class StateMachine(object):
 
     def get_current_state_info(self, object_tag, def_tag):
         state_info = self.backend.get_current_state_info(object_tag, def_tag)
-        state_info['object_tag'] = object_tag
-        state_info['def_tag'] = def_tag
-        return state_info
+        if state_info:
+            state_info['object_tag'] = object_tag
+            state_info['def_tag'] = def_tag
+            return state_info
 
 # ################################################################################################################################
 
