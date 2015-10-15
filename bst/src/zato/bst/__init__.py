@@ -148,7 +148,7 @@ def parse_pretty_print(value):
 
 def yield_definitions(service):
 
-    bst_dir = os.path.join(service.server.base_dir, 'config', 'repo', 'bst')
+    bst_dir = os.path.join(service.server.base_dir, 'config', 'repo', 'proc', 'bst')
     for name in os.listdir(bst_dir):
         full_name = os.path.join(bst_dir, name)
         value = ConfigObj(parse_pretty_print(open(full_name).read()).splitlines())
