@@ -718,7 +718,7 @@ class transition_to(object):
             self.def_tag = self.state_machine.get_def_tag(
                 self.object_type, self.object_id, self.state_new, self.def_name, self.def_version)
 
-        can_transition, reason, _ = self.state_machine.can_transition(self.object_tag, self.state_new, self.def_tag, self.force)
+        can_transition, reason, _, _= self.state_machine.can_transition(self.object_tag, self.state_new, self.def_tag, self.force)
         if not can_transition:
             raise TransitionError(reason)
 
