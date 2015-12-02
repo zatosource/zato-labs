@@ -10,7 +10,11 @@ Licensed under LGPLv3, see LICENSE.txt for terms and conditions.
 # https://zato.io
 
 # stdlib
+import sys
 from logging import getLogger
+
+# click
+import click
 
 # cryptography
 from cryptography.fernet import Fernet
@@ -20,8 +24,12 @@ try:
     from zato.server.service import Service
 except ImportError:
     class Service(object):
-        # Dummy so that CLI works
-        pass
+        pass # Dummy so that CLI works outside of Zato
+
+# ################################################################################################################################
+
+log_prefix = 'enclogdata:'
+log_prefix_len = len(log_prefix)
 
 # ################################################################################################################################
 
@@ -32,7 +40,7 @@ class _EncryptedLogger(object):
         self._enclog = getLogger('enclog')
 
     def _encrypt(self, msg):
-        return 'enclogdata:{}'.format(self.fernet.encrypt(msg.encode('utf-8')))
+        return '{}{}'.format(log_prefix, self.fernet.encrypt(msg.encode('utf-8')))
 
     def debug(self, msg):
         return self._enclog.debug(self._encrypt(msg))
@@ -58,3 +66,27 @@ class EncryptedLoggingAware(Service):
         self.enclog.warn(data)
 
 # ################################################################################################################################
+
+def _open(ctx, path, fernet_key):
+    fernet = Fernet(fernet_key)
+    for line in open(path):
+        prefix, encrypted = line.split(log_prefix)
+        sys.stdout.write('{}{}'.format(prefix, fernet.decrypt(encrypted)))
+
+# ################################################################################################################################
+
+@click.group()
+def cli_main():
+    pass
+
+@click.command()
+@click.argument('path', type=click.Path(exists=True, file_okay=True, dir_okay=False, resolve_path=True))
+@click.password_option('--fernet-key', prompt='Fernet key', confirmation_prompt=False, help='Fernet key to decrypt data with.')
+@click.pass_context
+def _cli_open(ctx, path, fernet_key):
+    _open(ctx, path, fernet_key.encode('utf-8'))
+
+cli_main.add_command(_cli_open, 'open')
+
+if __name__ == '__main__':
+    main()
