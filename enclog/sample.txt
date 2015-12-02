@@ -1,0 +1,11 @@
+Orders
+------
+
+New: Submitted
+Submitted: Ready
+Ready: Sent
+Sent: Confirmed, Rejected
+Rejected: Updated
+Updated: Ready
+Objects: Order, Priority order
+Force stop: Canceled, Timed out
