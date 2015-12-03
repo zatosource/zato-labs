@@ -17,7 +17,10 @@ from logging import getLogger
 import click
 
 # cryptography
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
+
+# Tailer
+from tailer import follow
 
 # Zato
 try:
@@ -72,11 +75,23 @@ class EncryptedLoggingAware(Service):
 
 # ################################################################################################################################
 
-def _open(ctx, path, fernet_key):
+def _open(ctx, path, fernet_key, needs_tailf=False):
     fernet = Fernet(fernet_key)
-    for line in open(path):
+
+    # Plain open
+    f = open(path)
+
+    # tail -f
+    if needs_tailf:
+        f = follow(f, delay=0.1)
+
+    for line in f:
         prefix, encrypted = line.split(log_prefix)
-        sys.stdout.write('{}{}'.format(prefix, fernet.decrypt(encrypted)))
+        try:
+            sys.stdout.write('{}{}'.format(prefix, fernet.decrypt(encrypted)))
+        except InvalidToken:
+            sys.stderr.write('Invalid Fernet key\n')
+            sys.exit(1)
 
 # ################################################################################################################################
 
@@ -84,22 +99,25 @@ def _open(ctx, path, fernet_key):
 def cli_main():
     pass
 
-@click.command()
-@click.argument('path', type=click.Path(exists=True, file_okay=True, dir_okay=False, resolve_path=True))
-@click.password_option(cli_key_option, prompt=cli_key_prompt, confirmation_prompt=cli_key_confirm_prompt, help=cli_key_help)
-@click.pass_context
-def _cli_open(ctx, path, fernet_key):
-    _open(ctx, path, fernet_key.encode('utf-8'))
+# ################################################################################################################################
 
-@click.command()
-@click.argument('path', type=click.Path(exists=True, file_okay=True, dir_okay=False, resolve_path=True))
-@click.password_option(cli_key_option, prompt=cli_key_prompt, confirmation_prompt=cli_key_confirm_prompt, help=cli_key_help)
-@click.pass_context
-def _cli_tailf(ctx, path, fernet_key):
-    _open(ctx, path, fernet_key.encode('utf-8'))
+def get_arg(name):
 
-cli_main.add_command(_cli_open, 'open')
-cli_main.add_command(_cli_tailf, 'tailf')
+    @click.command()
+    @click.argument('path', type=click.Path(exists=True, file_okay=True, dir_okay=False, resolve_path=True))
+    @click.password_option(cli_key_option, prompt=cli_key_prompt, confirmation_prompt=cli_key_confirm_prompt, help=cli_key_help)
+    @click.pass_context
+    def _cli_arg(ctx, path, fernet_key):
+        _open(ctx, path, fernet_key.encode('utf-8'), True if name == 'tailf' else False)
+
+    return _cli_arg
+
+for name in ('open', 'tailf'):
+    cli_main.add_command(get_arg(name), name)
+
+# ################################################################################################################################
 
 if __name__ == '__main__':
-    main()
+    cli_main()
+
+# ################################################################################################################################
