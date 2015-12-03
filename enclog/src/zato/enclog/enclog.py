@@ -70,9 +70,6 @@ class EncryptedLoggingAware(Service):
     def before_handle(self):
         self.enclog = _EncryptedLogger(self)
 
-    def handle(self):
-        self.enclog.warn(data)
-
 # ################################################################################################################################
 
 def _open(ctx, path, fernet_key, needs_tailf=False):
