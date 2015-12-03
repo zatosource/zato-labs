@@ -31,6 +31,11 @@ except ImportError:
 log_prefix = 'enclogdata:'
 log_prefix_len = len(log_prefix)
 
+cli_key_option = '--fernet-key'
+cli_key_prompt='Fernet key'
+cli_key_confirm_prompt=False
+cli_key_help='Fernet key to decrypt data with.'
+
 # ################################################################################################################################
 
 class _EncryptedLogger(object):
@@ -81,12 +86,20 @@ def cli_main():
 
 @click.command()
 @click.argument('path', type=click.Path(exists=True, file_okay=True, dir_okay=False, resolve_path=True))
-@click.password_option('--fernet-key', prompt='Fernet key', confirmation_prompt=False, help='Fernet key to decrypt data with.')
+@click.password_option(cli_key_option, prompt=cli_key_prompt, confirmation_prompt=cli_key_confirm_prompt, help=cli_key_help)
 @click.pass_context
 def _cli_open(ctx, path, fernet_key):
     _open(ctx, path, fernet_key.encode('utf-8'))
 
+@click.command()
+@click.argument('path', type=click.Path(exists=True, file_okay=True, dir_okay=False, resolve_path=True))
+@click.password_option(cli_key_option, prompt=cli_key_prompt, confirmation_prompt=cli_key_confirm_prompt, help=cli_key_help)
+@click.pass_context
+def _cli_tailf(ctx, path, fernet_key):
+    _open(ctx, path, fernet_key.encode('utf-8'))
+
 cli_main.add_command(_cli_open, 'open')
+cli_main.add_command(_cli_tailf, 'tailf')
 
 if __name__ == '__main__':
     main()
