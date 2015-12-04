@@ -30,11 +30,11 @@ setup(
 
       author = 'Dariusz Suchojad',
       author_email = 'dsuch at zato.io',
-      url = 'https://zato.io/docs',
-      description = 'Zato encrypted logs',
+      url = 'https://github.com/zatosource/zato-labs/tree/master/enclog',
+      description = 'Encrypted logger reusable in any Python application',
       long_description = LONG_DESCRIPTION,
       platforms = ['OS Independent'],
-      license = 'GNU Lesser General Public License v3 (LGPLv3)',
+      license = 'Python Software Foundation License',
 
       package_dir = {'':b'src'},
       packages = find_packages(b'src'),
@@ -52,7 +52,7 @@ setup(
         'Intended Audience :: Developers',
         'Intended Audience :: Information Technology',
         'Intended Audience :: Other Audience',
-        'License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)',
+        'License :: OSI Approved :: Python Software Foundation License',
         'Natural Language :: English',
         'Operating System :: OS Independent',
         'Programming Language :: Python',
