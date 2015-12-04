@@ -30,16 +30,16 @@ from tailer import follow
 log_prefix = 'enclogdata:'
 log_prefix_len = len(log_prefix)
 
-cli_key_option = '--fernet-key'
-cli_key_prompt='Fernet key'
+cli_key_option = '--key'
+cli_key_prompt='Crypto key'
 cli_key_confirm_prompt=False
-cli_key_help='Fernet key to decrypt data with.'
+cli_key_help='Crypto key to decrypt data with.'
 
 # ################################################################################################################################
 
 class EncryptedLogFormatter(Formatter):
-    def __init__(self, fernet_key, *args, **kwargs):
-        self.fernet = Fernet(fernet_key)
+    def __init__(self, key, *args, **kwargs):
+        self.fernet = Fernet(key)
         return super(EncryptedLogFormatter, self).__init__(*args, **kwargs)
 
     def format(self, record):
@@ -48,8 +48,8 @@ class EncryptedLogFormatter(Formatter):
 
 # ################################################################################################################################
 
-def _open(ctx, path, fernet_key, needs_tailf=False):
-    fernet = Fernet(fernet_key)
+def _open(ctx, path, key, needs_tailf=False):
+    fernet = Fernet(key)
 
     # Plain open
     f = open(path)
@@ -75,22 +75,25 @@ def cli_main():
 
 # ################################################################################################################################
 
+def genkey():
+    return Fernet.generate_key()
+
 @click.command()
 @click.pass_context
-def genkey(ctx):
-    sys.stdout.write('{}\n'.format(Fernet.generate_key()))
+def _genkey(ctx):
+    sys.stdout.write('{}\n'.format(genkey()))
 
 @click.command()
 @click.pass_context
 def demo(ctx):
     plain_text = b'{"user":"Jane Xi"}'
-    fernet_key = Fernet.generate_key()
-    fernet = Fernet(fernet_key)
+    key = Fernet.generate_key()
+    fernet = Fernet(key)
     encrypted = fernet.encrypt(plain_text)
     decrypted = fernet.decrypt(encrypted)
 
     sys.stdout.write('\nPlain text: {}\n'.format(plain_text))
-    sys.stdout.write('Fernet key: {}\n'.format(fernet_key))
+    sys.stdout.write('Key:        {}\n'.format(key))
     sys.stdout.write('Encrypted:  {}\n'.format(encrypted))
     sys.stdout.write('Decrypted:  {}\n\n'.format(decrypted))
 
@@ -100,12 +103,12 @@ def get_arg(name):
     @click.argument('path', type=click.Path(exists=True, file_okay=True, dir_okay=False, resolve_path=True))
     @click.password_option(cli_key_option, prompt=cli_key_prompt, confirmation_prompt=cli_key_confirm_prompt, help=cli_key_help)
     @click.pass_context
-    def _cli_arg(ctx, path, fernet_key):
-        _open(ctx, path, fernet_key.encode('utf-8'), True if name == 'tailf' else False)
+    def _cli_arg(ctx, path, key):
+        _open(ctx, path, key.encode('utf-8'), True if name == 'tailf' else False)
 
     return _cli_arg
 
-cli_main.add_command(genkey)
+cli_main.add_command(_genkey, 'genkey')
 cli_main.add_command(demo)
 
 for name in ('open', 'tailf'):
@@ -118,8 +121,8 @@ if __name__ == '__main__':
     level = logging.DEBUG
     format = '%(levelname)s - %(message)s'
 
-    fernet_key = Fernet.generate_key()
-    formatter = EncryptedLogFormatter(fernet_key, format)
+    key = Fernet.generate_key()
+    formatter = EncryptedLogFormatter(key, format)
 
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)

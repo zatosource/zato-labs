@@ -14,17 +14,14 @@ Licensed under LGPLv3, see LICENSE.txt for terms and conditions.
 # stdlib
 import logging
 
-# cryptography
-from cryptography.fernet import Fernet
-
 # Zato
-from enclog import EncryptedLogFormatter
+from enclog import EncryptedLogFormatter, genkey
 
 level = logging.INFO
 format = '%(levelname)s - %(message)s'
 
-fernet_key = Fernet.generate_key()
-formatter = EncryptedLogFormatter(fernet_key, format)
+key = genkey()
+formatter = EncryptedLogFormatter(key, format)
 
 handler = logging.StreamHandler()
 handler.setFormatter(formatter)
