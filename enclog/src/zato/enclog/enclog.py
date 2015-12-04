@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from __future__ import absolute_import, division, print_function
+
 """
 Copyright (C) 2015 Dariusz Suchojad <dsuch at zato.io>
 
@@ -10,8 +12,9 @@ Licensed under LGPLv3, see LICENSE.txt for terms and conditions.
 # https://zato.io
 
 # stdlib
+import logging
 import sys
-from logging import getLogger
+from logging import getLogger, Formatter
 
 # click
 import click
@@ -21,13 +24,6 @@ from cryptography.fernet import Fernet, InvalidToken
 
 # Tailer
 from tailer import follow
-
-# Zato
-try:
-    from zato.server.service import Service
-except ImportError:
-    class Service(object):
-        pass # Dummy so that CLI works outside of Zato
 
 # ################################################################################################################################
 
@@ -41,34 +37,14 @@ cli_key_help='Fernet key to decrypt data with.'
 
 # ################################################################################################################################
 
-class _EncryptedLogger(object):
-    def __init__(self, service):
-        self.service = service
-        self.fernet = Fernet(self.service.user_config.user.enclog.fernet_key)
-        self._enclog = getLogger('enclog')
+class EncryptedLogFormatter(Formatter):
+    def __init__(self, fernet_key, *args, **kwargs):
+        self.fernet = Fernet(fernet_key)
+        return super(EncryptedLogFormatter, self).__init__(*args, **kwargs)
 
-    def _encrypt(self, msg):
-        return '{}{}'.format(log_prefix, self.fernet.encrypt(msg.encode('utf-8')))
-
-    def debug(self, msg):
-        return self._enclog.debug(self._encrypt(msg))
-
-    def info(self, msg):
-        return self._enclog.info(self._encrypt(msg))
-
-    def warn(self, msg):
-        return self._enclog.warn(self._encrypt(msg))
-
-    def error(self, msg):
-        return self._enclog.error(self._encrypt(msg))
-
-# ################################################################################################################################
-
-class EncryptedLoggingAware(Service):
-    name = 'enc.logging.aware'
-
-    def before_handle(self):
-        self.enclog = _EncryptedLogger(self)
+    def format(self, record):
+        record.msg = '{}{}'.format(log_prefix, self.fernet.encrypt(record.getMessage()))
+        return super(EncryptedLogFormatter, self).format(record)
 
 # ################################################################################################################################
 
@@ -85,7 +61,8 @@ def _open(ctx, path, fernet_key, needs_tailf=False):
     for line in f:
         prefix, encrypted = line.split(log_prefix)
         try:
-            sys.stdout.write('{}{}'.format(prefix, fernet.decrypt(encrypted)))
+            sys.stdout.write('{}{}\n'.format(prefix, fernet.decrypt(encrypted)))
+            sys.stdout.flush()
         except InvalidToken:
             sys.stderr.write('Invalid Fernet key\n')
             sys.exit(1)
@@ -98,6 +75,11 @@ def cli_main():
 
 # ################################################################################################################################
 
+@click.command()
+@click.pass_context
+def genkey(ctx):
+    sys.stdout.write('{}\n'.format(Fernet.generate_key()))
+
 def get_arg(name):
 
     @click.command()
@@ -109,12 +91,27 @@ def get_arg(name):
 
     return _cli_arg
 
+cli_main.add_command(genkey)
+
 for name in ('open', 'tailf'):
     cli_main.add_command(get_arg(name), name)
 
 # ################################################################################################################################
 
 if __name__ == '__main__':
-    cli_main()
+
+    level = logging.DEBUG
+    format = '%(levelname)s - %(message)s'
+
+    formatter = EncryptedLogFormatter(Fernet.generate_key(), format)
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+
+    logger = getLogger('')
+    logger.addHandler(handler)
+    logger.setLevel(level)
+
+    logger.info('{"user":"Jane Xi"')
 
 # ################################################################################################################################
