@@ -80,6 +80,20 @@ def cli_main():
 def genkey(ctx):
     sys.stdout.write('{}\n'.format(Fernet.generate_key()))
 
+@click.command()
+@click.pass_context
+def demo(ctx):
+    plain_text = b'{"user":"Jane Xi"}'
+    fernet_key = Fernet.generate_key()
+    fernet = Fernet(fernet_key)
+    encrypted = fernet.encrypt(plain_text)
+    decrypted = fernet.decrypt(encrypted)
+
+    sys.stdout.write('\nPlain text: {}\n'.format(plain_text))
+    sys.stdout.write('Fernet key: {}\n'.format(fernet_key))
+    sys.stdout.write('Encrypted:  {}\n'.format(encrypted))
+    sys.stdout.write('Decrypted:  {}\n\n'.format(decrypted))
+
 def get_arg(name):
 
     @click.command()
@@ -92,6 +106,7 @@ def get_arg(name):
     return _cli_arg
 
 cli_main.add_command(genkey)
+cli_main.add_command(demo)
 
 for name in ('open', 'tailf'):
     cli_main.add_command(get_arg(name), name)
@@ -103,7 +118,8 @@ if __name__ == '__main__':
     level = logging.DEBUG
     format = '%(levelname)s - %(message)s'
 
-    formatter = EncryptedLogFormatter(Fernet.generate_key(), format)
+    fernet_key = Fernet.generate_key()
+    formatter = EncryptedLogFormatter(fernet_key, format)
 
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)
