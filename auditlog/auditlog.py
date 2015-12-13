@@ -156,6 +156,7 @@ class AuditLogTool(object):
 
                     for audit_item in response.data:
                         audit_item.channel = item.channel
+                        audit_item.aid = audit_item.id
 
                     result.extend(response.data)
 
@@ -172,13 +173,13 @@ class AuditLogTool(object):
         self.logger.info('%s %s found in total', len_result, noun)
 
         table = Texttable(150)
-        table.set_cols_dtype(['t', 't', 't', 't', 't', 't'])
+        table.set_cols_dtype(['t', 't', 't', 't', 't', 't',])
 
-        rows = [['#', 'req_time_utc', 'resp_time_utc', 'channel', 'remote_addr', 'cid']]
+        rows = [['#', 'req_time_utc', 'resp_time_utc', 'channel', 'cid', 'aid']]
         for idx, item in enumerate(sorted(result, key=itemgetter(self.order_by)), 1):
             req_time_utc = arrow_get(item.req_time_utc).strftime(self.date_format)
             resp_time_utc = arrow_get(item.resp_time_utc).strftime(self.date_format)
-            rows.append((idx, req_time_utc, resp_time_utc, '\n'.join(item.channel.split(',')), item.remote_addr, item.cid))
+            rows.append((idx, req_time_utc, resp_time_utc, item.channel, item.cid, item.aid))
 
         table.add_rows(rows)
         print(table.draw())
