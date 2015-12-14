@@ -152,7 +152,7 @@ class AuditLogTool(object):
 
         for item in self.get_items():
             self._invoke('zato.http-soap.set-audit-state', {'id':item.service_id, 'audit_enabled':enable})
-            self.logger.info('%s audit log for `%s`' % (verb, item.name))
+            self.logger.info('%s audit log for `%s`' % (verb, item.service_name))
 
 # ################################################################################################################################
 
