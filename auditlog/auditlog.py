@@ -140,7 +140,7 @@ class AuditLogTool(object):
 
         rows = [['service_name', 'audit_enabled']]
         for item in self.get_items():
-            rows.append((item.name, item.audit_enabled))
+            rows.append((item.channel, item.audit_enabled))
 
         table.add_rows(rows)
         print(table.draw())
@@ -152,7 +152,7 @@ class AuditLogTool(object):
 
         for item in self.get_items():
             self._invoke('zato.http-soap.set-audit-state', {'id':item.service_id, 'audit_enabled':enable})
-            self.logger.info('%s audit log for `%s`' % (verb, item.service_name))
+            self.logger.info('%s audit log for `%s`' % (verb, item.channel))
 
 # ################################################################################################################################
 
@@ -293,7 +293,7 @@ def get_arg(name):
         _cli_arg = click.option('--date-format', default='%Y-%m-%d %H:%M:%S')(_cli_arg)
         _cli_arg = click.option('--order-by', default='req_time_utc')(_cli_arg)
         _cli_arg = click.option('--batch-size', default=100)(_cli_arg)
-        _cli_arg = click.argument('query', default='')(_cli_arg)
+        _cli_arg = click.argument('query', required=True)(_cli_arg)
 
     elif name == 'get':
         _cli_arg = click.argument('aid', required=True)(_cli_arg)
