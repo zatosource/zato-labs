@@ -11,24 +11,11 @@ from cStringIO import StringIO
 from datetime import datetime
 from json import dumps, loads
 from logging import getLogger
-from string import Template
 from uuid import uuid4
 import os
 
 # Arrow
 from arrow import get as arrow_get
-
-# Blockdiag
-from blockdiag.parser import parse_string
-from blockdiag.builder import ScreenNodeBuilder
-from blockdiag.drawer import DiagramDraw
-from blockdiag.imagedraw import png
-from blockdiag.imagedraw.png import setup as png_setup
-from blockdiag.noderenderer import beginpoint, box, endpoint, roundedbox
-from blockdiag.noderenderer.beginpoint import setup as beginpoint_setup
-from blockdiag.noderenderer.box import setup as box_setup
-from blockdiag.noderenderer.endpoint import setup as endpoint_setup
-from blockdiag.noderenderer.roundedbox import setup as roundedbox_setup
 
 # Bunch
 from bunch import Bunch
@@ -45,50 +32,16 @@ logger = getLogger(__name__)
 
 # ################################################################################################################################
 
-png_setup(png)
-
-beginpoint_setup(beginpoint)
-box_setup(box)
-endpoint_setup(endpoint)
-roundedbox_setup(roundedbox)
-
-# ################################################################################################################################
-
 class CONST:
     NO_SUCH_NODE = 'NO_SUCH_NODE'
-    DEFAULT_DIAG_HIGHLIGHT_COLOR = 'bccc73'
-    DEFAULT_DIAG_NODE_WIDTH = 200
-    DEFAULT_DIAG_ORIENTATION = 'portrait'
     DEFAULT_DIAG_DT_FORMAT = '%a %d/%m/%y %H:%M:%S'
     DEFAULT_DIAG_TZ = 'UTC'
     DEFAULT_GRAPH_VERSION = 1
-    DIAG_ORIENTATION = ['portrait', 'landscape']
     PRETTY_PRINT_REPLACE = {
         'Force stop:': 'force_stop=',
         'Objects:': 'objects=',
         'Version:': 'version=',
     }
-    DIAG_DEF_TEMPLATE = """
-blockdiag {
-   orientation = $orientation;
-   default_shape = box;
-   node_width = $node_width;
-   class emphasis [color="#$highlight_color", style = dashed];
-
-group {
-  orientation = portrait;
-  color = "#ccccdd";
-$forced_stop
-}
-
-   begin [shape = beginpoint];
-   end [shape = endpoint];
-
-$labels
-
-$edges
-}
-""".lstrip()
 
 # ################################################################################################################################
 
@@ -545,9 +498,6 @@ class StateMachine(object):
 
 # ################################################################################################################################
 
-    def get_diagram_safe_name(self, name):
-        return name.strip().lower().replace(' ', '_')
-
     def reformat_date(self, value, time_zone, date_time_format):
         value = arrow_get(value).replace(tzinfo=pytz.UTC)
         local_tz = pytz.timezone(time_zone)
@@ -586,95 +536,6 @@ class StateMachine(object):
                 time_zone=time_zone)
 
         return name
-
-    def get_diagram_label(self, name, state_info, time_zone, date_time_format, is_stop=False):
-        item = '{name_safe} [label="{name_state}" {options}]'
-
-        if state_info and name in (state_info.state_current, state_info.state_old):
-            options = ', class="emphasis"'
-        else:
-            options = ''
-
-        return item.format(
-            name_safe=self.get_diagram_safe_name(name),
-            name_state=self.get_name_state(name, state_info, time_zone, date_time_format, is_stop),
-            options=options)
-
-# ################################################################################################################################
-
-    def get_diagram(self, def_tag, node_width=None, orientation=None, highlight_color=None, state_info=None, time_zone=None,
-            date_time_format=None, include_force_stop=True):
-
-        node_width = node_width or CONST.DEFAULT_DIAG_NODE_WIDTH
-        orientation = orientation or CONST.DEFAULT_DIAG_ORIENTATION
-        highlight_color = highlight_color.replace('#', '') if highlight_color else CONST.DEFAULT_DIAG_HIGHLIGHT_COLOR
-        time_zone = time_zone or CONST.DEFAULT_DIAG_TZ
-        date_time_format = date_time_format or CONST.DEFAULT_DIAG_DT_FORMAT
-
-        config_item = self.config[def_tag]
-        name = config_item.def_config.keys()[0] # There will be one key only
-        config = config_item.def_config[name]
-
-        forced_stop = []
-        labels = []
-        edges = []
-
-        for from_, to in config.items():
-            from_safe = self.get_diagram_safe_name(from_)
-            if isinstance(to, basestring):
-                to = [to]
-
-            # Regular edges
-            for to in to:
-                to_safe = self.get_diagram_safe_name(to)
-
-                edges.append('{} -> {};'.format(from_safe, to_safe))
-
-                # Labels separately so nodes can contain whitespace
-
-                from_label = self.get_diagram_label(from_, state_info, time_zone, date_time_format)
-                if from_label not in labels:
-                    labels.append(from_label)
-
-                to_label = self.get_diagram_label(to, state_info, time_zone, date_time_format)
-                if to_label not in labels:
-                    labels.append(to_label)
-
-                # Leaves
-                if to not in config:
-                    edges.append('{} -> end;'.format(to_safe))
-
-            # Roots
-            if from_ in config_item.def_.roots:
-                edges.append('begin -> {};'.format(from_safe))
-
-        # Forced stops
-        if include_force_stop:
-            for name in config_item.force_stop:
-                forced_stop.append(self.get_diagram_label(name, state_info, time_zone, date_time_format, True))
-
-        forced_stop = '\n'.join(sorted('   {}'.format(elem) for elem in forced_stop))
-        labels = '\n'.join(sorted('   {}'.format(elem) for elem in labels))
-        edges = '\n'.join(sorted('   {}'.format(elem) for elem in edges))
-
-        diag_def = Template(CONST.DIAG_DEF_TEMPLATE).safe_substitute(
-            highlight_color=highlight_color,
-            orientation=orientation,
-            node_width=node_width,
-            forced_stop=forced_stop,
-            labels=labels,
-            edges=edges)
-
-        try:
-            diagram = ScreenNodeBuilder.build(parse_string(diag_def))
-            draw = DiagramDraw('png', diagram)
-            draw.draw()
-        except Exception:
-            msg = 'Could not obtain diagram from definition:\n{}'.format(diag_def)
-            logger.warn(msg)
-            raise
-
-        return draw.save(), diag_def
 
 # ################################################################################################################################
 
@@ -727,9 +588,8 @@ class transition_to(object):
     def __exit__(self, exc_type, exc_value, traceback):
 
         if not exc_type:
-            # TODO: Use server_ctx in .transit
-            self.state_machine.transition(
-                self.object_tag, self.state_new, self.def_tag, None, self.ctx, self.force)
+            # TODO: Use server_ctx in .transition
+            self.state_machine.transition(self.object_tag, self.state_new, self.def_tag, None, self.ctx, self.force)
             return True
 
 # ################################################################################################################################
