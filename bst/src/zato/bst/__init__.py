@@ -9,7 +9,6 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 from copy import deepcopy
 from cStringIO import StringIO
 from datetime import datetime
-from json import dumps, loads
 from logging import getLogger
 from uuid import uuid4
 import os
@@ -23,8 +22,14 @@ from bunch import Bunch
 # ConfigObj
 from configobj import ConfigObj
 
+# pyrapidjson
+from rapidjson import dumps, loads
+
 # PyTZ
 import pytz
+
+# Zato
+from zato_bst_sql import Group, Item, label, SubGroup
 
 # ################################################################################################################################
 
@@ -368,6 +373,51 @@ class RedisBackend(StateBackendBase):
         history = dumps(history)
 
         self.conn.hset(self.PATTERN_STATE_HISTORY.format(def_tag), object_tag, history)
+
+# ################################################################################################################################
+
+class SQLBackend(StateBackendBase):
+    def __init__(self, session, cluster_id):
+        self.session = session
+        self.cluster_id = cluster_id
+
+    def get_current_state_info(self, object_tag, def_tag, needs_item=False, label=label):
+        item = self.session.query(Item).\
+            filter(Item.name==label.item.process_bst_inst_current % (def_tag, object_tag)).\
+            filter(Item.cluster_id==self.cluster_id).\
+            order_by(Item.name).\
+            first()
+
+        if item:
+            if needs_item:
+                return item
+            else:
+                return loads(item.value) if item.value else None
+
+    def set_current_state_info(self, object_tag, def_tag, state_info, label=label):
+        item = self.get_current_state_info(def_tag, object_tag, True)
+
+        if not item:
+            sub_group_id, group_id = self.session.query(SubGroup.id, SubGroup.group_id).\
+                filter(SubGroup.name==label.sub_group.conf.process_bst).\
+                filter(SubGroup.cluster_id==self.cluster_id).\
+                one()
+
+            item = Item()
+            item.name = label.item.process_bst_inst_current % (def_tag, object_tag)
+            item.is_internal = False
+            item.cluster_id = self.cluster_id
+            item.group_id = group_id
+            item.sub_group_id = sub_group_id
+
+        item.value = state_info
+
+        self.session.add(item)
+        self.session.commit()
+
+        print(object_tag)
+        print(def_tag)
+        print(state_info)
 
 # ################################################################################################################################
 
