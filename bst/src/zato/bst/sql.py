@@ -60,7 +60,7 @@ def get_session(engine):
 # ################################################################################################################################
 
 class Cluster(Base):
-    """ ZZZ: Ultimately this should be zato.common.odb.model.Cluster
+    """ Convenience class used only during development while BST is in zato-labs.
     """
     __tablename__ = 'cluster'
 
@@ -79,7 +79,6 @@ class Group(Base):
     is_internal = Column(Boolean(), nullable=False)
 
     cluster_id = Column(Integer, ForeignKey('cluster.id', ondelete='CASCADE'), nullable=False)
-    cluster = relationship(Cluster, backref=backref('data_groups', order_by=name, cascade='all, delete, delete-orphan'))
 
 # ################################################################################################################################
 
@@ -97,7 +96,6 @@ class SubGroup(Base):
     group = relationship(Group, backref=backref('sub_groups', order_by=name, cascade='all, delete, delete-orphan'))
 
     cluster_id = Column(Integer, ForeignKey('cluster.id', ondelete='CASCADE'), nullable=False)
-    cluster = relationship(Cluster, backref=backref('data_sub_groups', order_by=name, cascade='all, delete, delete-orphan'))
 
 # ################################################################################################################################
 
@@ -128,7 +126,6 @@ class Item(Base):
     sub_group = relationship(SubGroup, backref=backref('items', order_by=name, cascade='all, delete, delete-orphan'))
 
     cluster_id = Column(Integer, ForeignKey('cluster.id', ondelete='CASCADE'), nullable=False)
-    cluster = relationship(Cluster, backref=backref('data_items', order_by=name, cascade='all, delete, delete-orphan'))
 
 # ################################################################################################################################
 
@@ -144,7 +141,6 @@ class Tag(Base):
     value = Column(Text, nullable=True)
 
     cluster_id = Column(Integer, ForeignKey('cluster.id', ondelete='CASCADE'), nullable=False)
-    cluster = relationship(Cluster, backref=backref('data_tags', order_by=name, cascade='all, delete, delete-orphan'))
 
 # ################################################################################################################################
 
@@ -207,18 +203,33 @@ def setup(args):
 
     session = get_session(engine)
 
-    c = Cluster()
+    if args.dev_mode:
+        c = Cluster()
+    else:
+        # Override our development-only Cluster class with the actual one if not in dev mode
+        from zato.common.odb.model import Cluster
+        c = session.query(Cluster).\
+            filter(Cluster.id==args.cluster_id).\
+            one()
 
     g = Group()
     g.name = label.group.conf.process
     g.is_internal = True
-    g.cluster = c
+
+    if args.dev_mode:
+        g.cluster = c
+    else:
+        g.cluster_id = c.id
 
     sg = SubGroup()
     sg.name = label.sub_group.conf.process_bst
     sg.is_internal = True
     sg.group = g
-    sg.cluster = c
+
+    if args.dev_mode:
+        sg.cluster = c
+    else:
+        sg.cluster_id = c.id
 
     session.add(c)
     session.add(g)
@@ -248,5 +259,7 @@ if __name__ == '__main__':
     parser.add_argument('--odb_user', type=str, help='Username to connect with')
     parser.add_argument('--odb_password', type=str, help='Password for user')
     parser.add_argument('--odb_db_name', type=str, help='Name of database to connect to')
+    parser.add_argument('--cluster_id', type=str, help='ID of cluster to install BST in', required=True)
+    parser.add_argument('--dev_mode', type=str, help='(Reserved for internal use)', default=False)
 
     setup(parser.parse_args())
