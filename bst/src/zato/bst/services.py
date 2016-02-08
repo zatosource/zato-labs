@@ -102,7 +102,7 @@ class Transition(SingleTransitionBase):
 
     def handle(self):
         self._set_response(*self.environ.sm.transition(
-            self.environ.object_tag, self.request.input.state_new, self.environ.def_tag, 'zzz',
+            self.environ.object_tag, self.request.input.state_new, self.environ.def_tag, None,
             self.request.input.get('user_ctx', None), self.request.input.force, False))
 
 # ################################################################################################################################
