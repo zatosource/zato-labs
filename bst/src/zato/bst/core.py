@@ -30,9 +30,9 @@ import pytz
 
 # zato-labs
 try:
-    from zato.bst.sql import Group, Item, label, SubGroup
+    from zato_bst_sql import Item, label, SubGroup
 except ImportError:
-    from zato_bst_sql import Group, Item, label, SubGroup
+    from zato.bst.sql import Item, label, SubGroup
 
 # ################################################################################################################################
 

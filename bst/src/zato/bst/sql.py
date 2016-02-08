@@ -16,10 +16,6 @@ from sqlalchemy import Boolean, Column, create_engine, ForeignKey, Integer, Sequ
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import backref, relationship, sessionmaker
 
-# Zato
-from zato.common import util
-from zato.common.odb import util as odb_util
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -76,6 +72,7 @@ class Group(Base):
     """ Groups common items.
     """
     __tablename__ = 'data_group'
+    __table_args__ = (UniqueConstraint('cluster_id', 'name'), {})
 
     id = Column(Integer, Sequence('data_group_seq'), primary_key=True)
     name = Column(String(2048), unique=True, nullable=False)
@@ -90,6 +87,7 @@ class SubGroup(Base):
     """ A sub-group within a larger group of items.
     """
     __tablename__ = 'data_sub_group'
+    __table_args__ = (UniqueConstraint('cluster_id', 'group_id', 'name'), {})
 
     id = Column(Integer, Sequence('data_sub_group_seq'), primary_key=True)
     name = Column(String(2048), unique=True, nullable=False)
@@ -111,6 +109,7 @@ class Item(Base):
     so as not to require 'value' to be parsed on client side in order to extract data or filter by 'value's contents.
     """
     __tablename__ = 'data_item'
+    __table_args__ = (UniqueConstraint('cluster_id', 'group_id', 'sub_group_id', 'name'), {})
 
     id = Column(Integer, Sequence('data_item_seq'), primary_key=True)
     parent_id = Column(Integer, ForeignKey('data_item.id', ondelete='CASCADE'), nullable=True)
@@ -137,6 +136,7 @@ class Tag(Base):
     """ A tag that can be attached to any object.
     """
     __tablename__ = 'data_tag'
+    __table_args__ = (UniqueConstraint('cluster_id', 'name'), {})
 
     id = Column(Integer, Sequence('data_tag_seq'), primary_key=True)
     name = Column(String(2048), unique=True, nullable=False)
@@ -152,6 +152,7 @@ class GroupTag(Base):
     """ An N:N association between groups and tags.
     """
     __tablename__ = 'data_group_tag'
+    __table_args__ = (UniqueConstraint('group_id', 'tag_id'), {})
 
     id = Column(Integer, Sequence('data_group_tag_seq'), primary_key=True)
 
@@ -167,6 +168,7 @@ class SubGroupTag(Base):
     """ An N:N association between sub-groups and tags.
     """
     __tablename__ = 'data_sub_group_tag'
+    __table_args__ = (UniqueConstraint('sub_group_id', 'tag_id'), {})
 
     id = Column(Integer, Sequence('data_sub_group_tag_seq'), primary_key=True)
 
@@ -182,6 +184,7 @@ class ItemTag(Base):
     """ An N:N association between items and tags.
     """
     __tablename__ = 'data_item_tag'
+    __table_args__ = (UniqueConstraint('item_id', 'tag_id'), {})
 
     id = Column(Integer, Sequence('data_item_tag_seq'), primary_key=True)
 
@@ -229,7 +232,12 @@ def setup(args):
 
 if __name__ == '__main__':
 
+    # stdlib
     import argparse
+
+    # Zato
+    from zato.common import util
+    from zato.common.odb import util as odb_util
 
     db_choices = ('mysql', 'postgresql', 'oracle', 'sqlite')
 

@@ -1,6 +1,7 @@
-dist
+bst.db
 bst-env/
 .coverage
+dist
 *.egg-info
 *.pyc
 *~
