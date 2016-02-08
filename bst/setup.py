@@ -14,7 +14,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import os
 from setuptools import setup, find_packages
 
-version = '1.0'
+version = '1.1'
 
 LONG_DESCRIPTION = ''
 
@@ -29,7 +29,7 @@ setup(
       author = 'Dariusz Suchojad',
       author_email = 'dsuch at zato.io',
       url = 'https://zato.io/docs',
-      description = 'Zato business state transitions - a flexible state machine for business processess',
+      description = 'Zato Business State Transitions - a flexible state machine for business processes',
       long_description = LONG_DESCRIPTION,
       platforms = ['OS Independent'],
       license = 'GNU Lesser General Public License v3 (LGPLv3)',

@@ -21,8 +21,8 @@ from zato.server.service import AsIs, Bool, Service
 # ################################################################################################################################
 
 class FORMAT:
-    DEFINITION = ['diagram-def', 'diagram-png', 'json', 'text']
-    STATE = ['diagram-def', 'diagram-png', 'json']
+    DEFINITION = ['json', 'text']
+    STATE = ['json']
 
 # ################################################################################################################################
 
@@ -102,7 +102,7 @@ class Transition(SingleTransitionBase):
 
     def handle(self):
         self._set_response(*self.environ.sm.transition(
-            self.environ.object_tag, self.request.input.state_new, self.environ.def_tag, 'zzz',
+            self.environ.object_tag, self.request.input.state_new, self.environ.def_tag, None,
             self.request.input.get('user_ctx', None), self.request.input.force, False))
 
 # ################################################################################################################################
@@ -157,14 +157,14 @@ class FormatBase(Base):
 # ################################################################################################################################
 
 class GetDefinition(FormatBase):
-    """ Returns a selected definition, as text, JSON or a diagram.
+    """ Returns a selected definition, as text or JSON.
     """
     name = 'labs.proc.bst.get-definition'
     def_format = FORMAT.DEFINITION
 
     class SimpleIO:
         input_required = ('def_name',)
-        input_optional = ('format', 'def_version', 'node_width', 'orientation')
+        input_optional = ('format', 'def_version')
 
     def handle(self):
         def_name = Definition.get_name(self.request.input.def_name)
@@ -177,7 +177,7 @@ class GetDefinition(FormatBase):
 
     def _get_handle(self):
 
-        format = self.request.input.get('format') or 'diagram-png'
+        format = self.request.input.get('format') or 'text'
         format = format.replace('-', '_')
         return getattr(self, '_handle_def_{}'.format(format))
 
@@ -187,38 +187,10 @@ class GetDefinition(FormatBase):
     def _handle_def_json(self, def_tag):
         self.response.payload = dumps(self.environ.sm.config[def_tag].orig_config, indent=2)
 
-    def _get_def_diagram(self, def_tag, needs_png=True, mime_type='image/png', state_info=None):
-
-        optional = {}
-        for item in self.SimpleIO.input_optional:
-            if item not in ('def_name', 'def_version', 'format'):
-                item = item if isinstance(item, basestring) else item.name
-                optional[item] = self.request.input.get(item)
-
-        if self.needs_state_info:
-            optional['state_info'] = bunchify(
-                self.environ.sm.get_current_state_info(self.environ.object_tag, self.environ.def_tag))
-
-        # An empty string from a missing optional arguments gets turned into a proper boolean
-        include_force_stop = optional.get('include_force_stop', True)
-        if isinstance(include_force_stop, basestring) and not include_force_stop:
-            optional['include_force_stop'] = True
-
-        png, diag_def = self.environ.sm.get_diagram(def_tag, **optional)
-
-        self.response.payload = png if needs_png else diag_def
-        self.response.content_type = mime_type
-
-    def _handle_def_diagram_png(self, def_tag):
-        self._get_def_diagram(def_tag)
-
-    def _handle_def_diagram_def(self, def_tag):
-        self._get_def_diagram(def_tag, False, 'text/plain')
-
 # ################################################################################################################################
 
 class GetCurrentStateInfo(GetDefinition):
-    """ Returns information on an object's state in a given process as JSON or a diagram.
+    """ Returns information on an object's state in a given process as JSON.
     """
     name = 'labs.proc.bst.get-current-state-info'
     def_format = FORMAT.STATE
@@ -226,8 +198,7 @@ class GetCurrentStateInfo(GetDefinition):
 
     class SimpleIO:
         input_required = ('object_type', AsIs('object_id'))
-        input_optional = ('format', 'def_name', 'def_version', 'node_width', 'orientation', 'date_time_format', 'time_zone',
-            'highlight_color', Bool('include_force_stop'))
+        input_optional = ('format', 'def_name', 'def_version', 'date_time_format', 'time_zone')
 
     def handle(self):
         self._get_handle()(self.environ.def_tag)
