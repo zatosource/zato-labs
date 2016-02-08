@@ -29,7 +29,10 @@ from rapidjson import dumps, loads
 import pytz
 
 # zato-labs
-from zato.bst.sql import Group, Item, label, SubGroup
+try:
+    from zato.bst.sql import Group, Item, label, SubGroup
+except ImportError:
+    from zato_bst_sql import Group, Item, label, SubGroup
 
 # ################################################################################################################################
 

@@ -6,5 +6,10 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 # https://zato.io
 
 # zato-labs
-from zato.bst.core import AddEdgeResult, ConfigItem, CONST, Definition, Node, parse_pretty_print, RedisBackend, \
-     setup_server_config, StateBackendBase, StateMachine, transition_to, yield_definitions
+try:
+    from zato.bst.core import AddEdgeResult, ConfigItem, CONST, Definition, Node, parse_pretty_print, RedisBackend, \
+         setup_server_config, SQLBackend, StateBackendBase, StateMachine, transition_to, yield_definitions
+
+except ImportError:
+    from zato_bst_core import AddEdgeResult, ConfigItem, CONST, Definition, Node, parse_pretty_print, RedisBackend, \
+         setup_server_config, SQLBackend, StateBackendBase, StateMachine, transition_to, yield_definitions
