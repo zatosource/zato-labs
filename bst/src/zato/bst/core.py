@@ -138,7 +138,7 @@ def setup_server_config(service):
         config[item.def_.tag] = item
 
     service.server.user_ctx.zato_state_machine = StateMachine(
-        config, SQLBackend(get_session(service.server.odb.pool.engine, service.server.cluster.id)))
+        config, SQLBackend(get_session(service.server.odb.pool.engine), service.server.cluster_id))
 
 # ################################################################################################################################
 
