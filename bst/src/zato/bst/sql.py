@@ -47,8 +47,8 @@ class label:
     class item:
         """ Actual items such as configuration values or run-time instances.
         """
-        process_bst_inst_current = 'zato.inst.process.bst.current.%s.%s'
-        process_bst_inst_history = 'zato.inst.process.bst.history.%s.%s'
+        process_bst_inst_current = 'zato.inst.process.bst.current.%s.%s' # def_tag.object_tag
+        process_bst_inst_history = 'zato.inst.process.bst.history.%s.%s' # ditto
 
 # ################################################################################################################################
 
@@ -196,11 +196,10 @@ def setup(args):
 
     logger.info('Setting up BST in `%s`', args.__dict__)
 
-    connect_args = {'application_name':util.get_component_name('bst')} if args.odb_type == 'postgresql' else {}
+    connect_args = {'application_name':util.get_component_name('bst.setup')} if args.odb_type == 'postgresql' else {}
     engine = create_engine(odb_util.get_engine_url(args), connect_args=connect_args)
 
     Base.metadata.create_all(engine)
-
     session = get_session(engine)
 
     if args.dev_mode:
@@ -253,9 +252,10 @@ if __name__ == '__main__':
     db_choices = ('mysql', 'postgresql', 'oracle', 'sqlite')
 
     parser = argparse.ArgumentParser(description='Set up BST in a Zato 2.0 environment')
+
     parser.add_argument('--odb_type', type=str, help='Type of database to connect to', choices=db_choices, required=True)
-    parser.add_argument('--odb_port', type=str, help='SQL port to connect to')
     parser.add_argument('--odb_host', type=str, help='SQL host to connect to')
+    parser.add_argument('--odb_port', type=str, help='SQL port to connect to')
     parser.add_argument('--odb_user', type=str, help='Username to connect with')
     parser.add_argument('--odb_password', type=str, help='Password for user')
     parser.add_argument('--odb_db_name', type=str, help='Name of database to connect to')
