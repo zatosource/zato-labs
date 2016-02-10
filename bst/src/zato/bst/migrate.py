@@ -55,8 +55,6 @@ def migrate(args):
     redis_conn = redis.StrictRedis(args.redis_host, args.redis_port, password=args.redis_password)
     redis_conn.ping()
 
-    print()
-
     for current_key in redis_conn.keys(RedisBackend.PATTERN_STATE_CURRENT.format('*')):
         for object_tag, value in redis_conn.hgetall(current_key).items():
 
@@ -74,6 +72,8 @@ def migrate(args):
             item.group_id = group_id
             item.sub_group_id = sub_group_id
             item.value = value
+
+            logger.info('Adding `current`, name:`%s`, value:`%s`', item.name, item.value)
 
             session.add(item)
             session.commit()
@@ -95,6 +95,8 @@ def migrate(args):
             item.group_id = group_id
             item.sub_group_id = sub_group_id
             item.value = value
+
+            logger.info('Adding `history`, name:`%s`, value:`%s`', item.name, item.value)
 
             session.add(item)
             session.commit()
