@@ -5,14 +5,11 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 # stdlib
 import logging
 
-# Bunch
-from bunch import Bunch
-
 # Redis
 import redis
 
 # SQLAlchemy
-from sqlalchemy import create_engine, orm
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 # Zato

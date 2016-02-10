@@ -15,4 +15,4 @@ except ImportError:
 
 # For flake8
 AddEdgeResult, ConfigItem, CONST, Definition, Node, parse_pretty_print, RedisBackend
-setup_server_config, SQLBackend, StateBackendBase, StateMachine, transition_to, yield_definitions
+setup_server_config, SQLBackend, StateBackendBase, StateMachine, TransitionError, transition_to, yield_definitions

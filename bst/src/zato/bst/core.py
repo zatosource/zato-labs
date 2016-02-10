@@ -28,6 +28,9 @@ from rapidjson import dumps, loads
 # PyTZ
 import pytz
 
+# SQLAlchemy
+from sqlalchemy import orm
+
 # zato-labs
 try:
     from zato_bst_sql import Item, label, SubGroup
@@ -37,6 +40,13 @@ except ImportError:
 # ################################################################################################################################
 
 logger = getLogger(__name__)
+
+# ################################################################################################################################
+
+def get_session(engine):
+    session = orm.sessionmaker() # noqa
+    session.configure(bind=engine)
+    return session()
 
 # ################################################################################################################################
 
@@ -127,7 +137,8 @@ def setup_server_config(service):
         item.parse_config_dict({name:data})
         config[item.def_.tag] = item
 
-    service.server.user_ctx.zato_state_machine = StateMachine(config, RedisBackend(service.kvdb.conn))
+    service.server.user_ctx.zato_state_machine = StateMachine(
+        config, SQLBackend(get_session(service.server.odb.pool.engine, service.server.cluster.id)))
 
 # ################################################################################################################################
 
