@@ -137,8 +137,9 @@ def setup_server_config(service):
         item.parse_config_dict({name:data})
         config[item.def_.tag] = item
 
-    service.server.user_ctx.zato_state_machine = StateMachine(
-        config, SQLBackend(get_session(service.server.odb.pool.engine), service.server.cluster_id))
+    #service.server.user_ctx.zato_state_machine = StateMachine(
+    #    config, SQLBackend(get_session(service.server.odb.pool.engine), service.server.cluster_id))
+    service.server.user_ctx.zato_state_machine = StateMachine(config, RedisBackend(service.kvdb.conn))
 
 # ################################################################################################################################
 
