@@ -1,0 +1,6 @@
+chatops-env/
+logs
+*.egg-info
+*.pyc
+*~
+
