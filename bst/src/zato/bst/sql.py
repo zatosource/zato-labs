@@ -12,15 +12,20 @@ import logging
 from dictalchemy import make_class_dictable
 
 # SQLAlchemy
-from sqlalchemy import Boolean, Column, create_engine, ForeignKey, Integer, Sequence, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, create_engine, DateTime, ForeignKey, Integer, Sequence, String, Text, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import backref, relationship, sessionmaker
+
+# Zato
+from zato.common.util import get_current_user, get_component_name
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 make_class_dictable(Base)
+
+# ################################################################################################################################
 
 # ################################################################################################################################
 
@@ -78,6 +83,12 @@ class Group(Base):
     name = Column(String(2048), unique=True, nullable=False)
     is_internal = Column(Boolean(), nullable=False)
 
+    created_utc = Column(DateTime(), nullable=False)
+    created_ctx = Column(Text, nullable=False)
+
+    last_updated_utc = Column(DateTime(), nullable=False)
+    last_updated_ctx_hist = Column(Text, nullable=False)
+
     cluster_id = Column(Integer, ForeignKey('cluster.id', ondelete='CASCADE'), nullable=False)
 
 # ################################################################################################################################
@@ -94,6 +105,12 @@ class SubGroup(Base):
 
     group_id = Column(Integer, ForeignKey('data_group.id', ondelete='CASCADE'), nullable=False)
     group = relationship(Group, backref=backref('sub_groups', order_by=name, cascade='all, delete, delete-orphan'))
+
+    created_utc = Column(DateTime(), nullable=False)
+    created_ctx = Column(Text, nullable=False)
+
+    last_updated_utc = Column(DateTime(), nullable=False)
+    last_updated_ctx_hist = Column(Text, nullable=False)
 
     cluster_id = Column(Integer, ForeignKey('cluster.id', ondelete='CASCADE'), nullable=False)
 
@@ -116,6 +133,12 @@ class Item(Base):
 
     name = Column(String(2048), unique=True, nullable=False)
     value = Column(Text, nullable=True)
+
+    created_utc = Column(DateTime(), nullable=False)
+    created_ctx = Column(Text, nullable=False)
+
+    last_updated_utc = Column(DateTime(), nullable=False)
+    last_updated_ctx_hist = Column(Text, nullable=False)
 
     # Foreign keys are for both groups and sub-groups
 
@@ -140,6 +163,12 @@ class Tag(Base):
     is_internal = Column(Boolean(), nullable=False)
     value = Column(Text, nullable=True)
 
+    created_utc = Column(DateTime(), nullable=False)
+    created_ctx = Column(Text, nullable=False)
+
+    last_updated_utc = Column(DateTime(), nullable=False)
+    last_updated_ctx_hist = Column(Text, nullable=False)
+
     cluster_id = Column(Integer, ForeignKey('cluster.id', ondelete='CASCADE'), nullable=False)
 
 # ################################################################################################################################
@@ -158,6 +187,12 @@ class GroupTag(Base):
     tag_id = Column(Integer, ForeignKey('data_tag.id', ondelete='CASCADE'), nullable=False)
     tag = relationship(Tag, backref=backref('groups', order_by=id, cascade='all, delete, delete-orphan'))
 
+    created_utc = Column(DateTime(), nullable=False)
+    created_ctx = Column(Text, nullable=False)
+
+    last_updated_utc = Column(DateTime(), nullable=False)
+    last_updated_ctx_hist = Column(Text, nullable=False)
+
 # ################################################################################################################################
 
 class SubGroupTag(Base):
@@ -174,6 +209,12 @@ class SubGroupTag(Base):
     tag_id = Column(Integer, ForeignKey('data_tag.id', ondelete='CASCADE'), nullable=False)
     tag = relationship(Tag, backref=backref('sub_groups', order_by=id, cascade='all, delete, delete-orphan'))
 
+    created_utc = Column(DateTime(), nullable=False)
+    created_ctx = Column(Text, nullable=False)
+
+    last_updated_utc = Column(DateTime(), nullable=False)
+    last_updated_ctx_hist = Column(Text, nullable=False)
+
 # ################################################################################################################################
 
 class ItemTag(Base):
@@ -189,6 +230,12 @@ class ItemTag(Base):
 
     tag_id = Column(Integer, ForeignKey('data_tag.id', ondelete='CASCADE'), nullable=False)
     tag = relationship(Tag, backref=backref('items', order_by=id, cascade='all, delete, delete-orphan'))
+
+    created_utc = Column(DateTime(), nullable=False)
+    created_ctx = Column(Text, nullable=False)
+
+    last_updated_utc = Column(DateTime(), nullable=False)
+    last_updated_ctx_hist = Column(Text, nullable=False)
 
 # ################################################################################################################################
 
