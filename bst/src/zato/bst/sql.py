@@ -19,6 +19,8 @@ from sqlalchemy.orm import backref, relationship, sessionmaker
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# ################################################################################################################################
+
 Base = declarative_base()
 make_class_dictable(Base)
 
