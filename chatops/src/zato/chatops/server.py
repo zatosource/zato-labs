@@ -14,6 +14,7 @@ import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
+from httplib import OK, responses
 
 # gevent
 from gevent.pywsgi import WSGIServer
@@ -32,7 +33,7 @@ class Server(object):
         self.conf_path = conf_path
         self.host = self.conf.core.listen_host
         self.port = int(self.conf.core.listen_port)
-        self.name = '%s %s:%s%s %s' % (self.conf.core.name, self.host, self.port, self.conf.core.url_path, self.conf_path)
+        self.name = '{} {}:{}{} {}'.format(self.conf.core.name, self.host, self.port, self.conf.core.url_path, self.conf_path)
         self.setup_logging()
 
 # ################################################################################################################################
@@ -66,8 +67,13 @@ class Server(object):
 
 # ################################################################################################################################
 
-    def _on_request(self, env):
-        pass
+    def _on_request(self, env, response_ok=responses[OK]):
+        request = env['wsgi.input'].read()
+
+        self.logger.info('`%s`', request)
+        self.logger.info(env)
+
+        return '{} {}'.format(OK, response_ok), b''
 
 # ################################################################################################################################
 
