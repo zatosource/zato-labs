@@ -31,8 +31,8 @@ class ZatoHipChat(_HipChat):
     def integration_name(self):
         return 'zato_hipchat'
 
-    def reply(self, response):
-        self.client.send_message(mto=req.channel, mbody=req.text, mtype='groupchat')
+    def reply(self, req, response):
+        self.client.send_message(mto=req.get_from(), mbody=response, mtype='groupchat')
 
     def handle_message(self, req):
         self.havocbot.on_request_cb(self, req)

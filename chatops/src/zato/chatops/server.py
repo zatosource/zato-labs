@@ -15,9 +15,11 @@ Licensed under LGPLv3, see LICENSE.txt for terms and conditions.
 import logging
 import os
 import sys
+from random import choice
 from logging.handlers import RotatingFileHandler
 from httplib import OK
 from threading import RLock
+from traceback import format_exc
 
 # havocbot
 from havocbot.bot import HavocBot
@@ -55,6 +57,8 @@ class Server(object):
         self.api_token = self.conf.hipchat.api_token
         self.setup_logging()
         self.bot = None
+        self.commands = ['info', 'help', 'pr', 'prs', 'meta']
+        self.yes_aha = ['Yes?', 'Aha?', 'Mhm?', 'What can I do for you?', 'How can I help you?', 'Anything I can do for you?']
         self.update_lock = RLock()
 
 # ################################################################################################################################
@@ -115,15 +119,35 @@ class Server(object):
 
 # ################################################################################################################################
 
+    def handle_command(self, cmd, rest):
+        pass
+
+# ################################################################################################################################
+
     def get_response(self, msg):
-        return msg
+        msg = msg.split()
+        command = msg[0]
+
+        if command not in self.commands:
+            return 'I only know these commands: {}\n'.format(', '.join(self.commands))
+
+        return getattr(self, 'on_cmd_{}'.format(command))(msg[1:])
 
 # ################################################################################################################################
 
     def handle(self, client, req):
         self.logger.info(req)
-        req.reply('{} {}'.format(
-            self.get_sender_mention(req.get_mucnick()), self.get_response(req['body'].replace(self.self_mention, '', 1).strip())))
+        try:
+            reply_to = self.get_sender_mention(req.get_mucnick())
+            data = req['body'].replace(self.self_mention, '', 1).strip()
+            if data:
+                response = self.get_response(data)
+                req.reply('{} {}'.format(reply_to, response))
+            else:
+                req.reply('{} {}'.format(reply_to, choice(self.yes_aha)))
+        except Exception, e:
+            client.reply(req, format_exc(e))
+
         req.send()
 
 # ################################################################################################################################
@@ -158,9 +182,6 @@ class Server(object):
         self.bot = _Bot(self.on_request)
         self.bot.add_client_package('zato.chatops.zato_havocbot_client.%s')
         self.bot.set_settings(havocbot_settings=bot_conf, clients_settings=client_conf)
-
-        from_ = 'Dariusz Suchojad'
-        self.get_sender_mention(from_)
 
         try:
             self.bot.start()
