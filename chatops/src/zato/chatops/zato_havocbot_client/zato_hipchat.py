@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # ################################################################################################################################
 
-class HipChat(_HipChat):
+class ZatoHipChat(_HipChat):
 
     @property
     def integration_name(self):

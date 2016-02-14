@@ -77,8 +77,6 @@ class Server(object):
         self.logger.addHandler(file_handler)
         self.logger.addHandler(stdout_handler)
 
-        logging.basicConfig(level=logging.INFO, format=self.conf.logging.format)
-
 # ################################################################################################################################
 
     def on_request(self, req):
