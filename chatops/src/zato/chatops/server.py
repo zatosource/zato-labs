@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 """
 Copyright (C) 2016 Dariusz Suchojad <dsuch at zato.io>
 
@@ -17,24 +19,35 @@ from logging.handlers import RotatingFileHandler
 from httplib import OK, responses
 
 # gevent
-from gevent.pywsgi import WSGIServer
+#from gevent.pywsgi import WSGIServer
+
+# havocbot
+from havocbot.bot import HavocBot
+
+# Munch
+from munch import Munch, munchify
+
+# rapidjson
+from rapidjson import loads
 
 # setproctitle
 from setproctitle import setproctitle
+
+# ################################################################################################################################
 
 class const:
     exit_invalid_log_conf = 1
 
 # ################################################################################################################################
 
+
 class Server(object):
     def __init__(self, conf, conf_path):
         self.conf = conf
         self.conf_path = conf_path
-        self.host = self.conf.core.listen_host
-        self.port = int(self.conf.core.listen_port)
-        self.name = '{} {}:{}{} {}'.format(self.conf.core.name, self.host, self.port, self.conf.core.url_path, self.conf_path)
+        self.name = '{} ({})'.format(self.conf.core.name, self.conf.core.chat_provider)
         self.setup_logging()
+        self.bot = None
 
 # ################################################################################################################################
 
@@ -65,28 +78,7 @@ class Server(object):
         self.logger.addHandler(file_handler)
         self.logger.addHandler(stdout_handler)
 
-# ################################################################################################################################
-
-    def _on_request(self, env, response_ok=responses[OK]):
-        request = env['wsgi.input'].read()
-
-        self.logger.info('`%s`', request)
-        self.logger.info(env)
-
-        return '{} {}'.format(OK, response_ok), b''
-
-# ################################################################################################################################
-
-    def on_wsgi_request(self, env, start_response):
-        if env['PATH_INFO'] == self.conf.core.url_path:
-            status, response = self._on_request(env)
-            content_type = 'application/json'
-        else:
-            status, response = '404 Not Found', b'Not found\n'
-            content_type = 'text/json'
-
-        start_response(status, [('Content-Type', content_type)])
-        return [response]
+        logging.basicConfig(level=logging.INFO, format=self.conf.logging.format)
 
 # ################################################################################################################################
 
@@ -98,8 +90,25 @@ class Server(object):
         # Ok, only logging left ..
         self.logger.info('Starting %s' % self.name)
 
-        # .. and we can start.
-        _s = WSGIServer((self.host, self.port), self.on_wsgi_request)
-        _s.serve_forever()
+        bot_conf = Munch()
+        bot_conf.clients_enabled = 'zato_hipchat'
+        bot_conf.plugin_dirs = 'plugins'
+
+        client_conf = Munch()
+        client_conf.zato_hipchat = []
+        client_conf.zato_hipchat.extend(getattr(self.conf, self.conf.core.chat_provider).items())
+
+        self.bot = HavocBot()
+        self.bot.add_client_package('zato.chatops.zato_havocbot_client.%s')
+
+        self.bot.set_settings(havocbot_settings=bot_conf, clients_settings=client_conf)
+
+        try:
+            self.bot.start()
+        except (KeyboardInterrupt, SystemExit):
+            self.logger.info('Shutting down %s', self.name)
+            if self.bot.clients is not None and len(self.bot.clients):
+                self.bot.shutdown()
+            sys.exit(0)
 
 # ################################################################################################################################

@@ -20,7 +20,7 @@ LONG_DESCRIPTION = ''
 
 def parse_requirements(requirements):
     with open(requirements) as f:
-        return [line.strip('\n') for line in f if line.strip('\n') and not line.startswith('#')]
+        return [line.strip('\n') for line in f if line.strip('\n') and not (line.startswith('#') or line.startswith('-e'))]
 
 package_dir = b'src' if sys.version_info.major == 2 else 'src'
 
