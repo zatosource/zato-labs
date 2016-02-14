@@ -16,10 +16,8 @@ import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
-from httplib import OK, responses
-
-# gevent
-#from gevent.pywsgi import WSGIServer
+from httplib import OK
+from threading import RLock
 
 # havocbot
 from havocbot.bot import HavocBot
@@ -30,8 +28,14 @@ from munch import Munch, munchify
 # rapidjson
 from rapidjson import loads
 
+# requests
+import requests
+
 # setproctitle
 from setproctitle import setproctitle
+
+# zato-elem
+from zato.elem import json
 
 # ################################################################################################################################
 
@@ -45,8 +49,13 @@ class Server(object):
         self.conf = conf
         self.conf_path = conf_path
         self.name = '{} ({})'.format(self.conf.core.name, self.conf.core.chat_provider)
+        self.self_mention = self.conf.hipchat.mention
+        self.mentions = {}
+        self.api_url = self.conf.hipchat.api_url
+        self.api_token = self.conf.hipchat.api_token
         self.setup_logging()
         self.bot = None
+        self.update_lock = RLock()
 
 # ################################################################################################################################
 
@@ -59,6 +68,7 @@ class Server(object):
             log_path = os.path.abspath(os.path.join(os.path.dirname(self.conf_path), log_path))
 
         log_dir = os.path.dirname(log_path)
+
         if not os.path.exists(log_dir):
             sys.stderr.write('Could not find log directory `%s`\n' % log_dir)
             sys.exit(const.exit_invalid_log_conf)
@@ -79,8 +89,48 @@ class Server(object):
 
 # ################################################################################################################################
 
-    def on_request(self, req):
+    def _call_api(self, path, **params):
+        _params = {'auth_token': self.api_token}
+        _params.update(params)
+        response = requests.get('{}{}'.format(self.api_url, path), _params)
+
+        if response.status_code != OK:
+            raise Exception(response.text)
+
+        return munchify(loads(response.text))
+
+# ################################################################################################################################
+
+    def _set_mentions(self):
+        for item in self._call_api('/user')['items']:
+            self.mentions[item.name] = '@{}'.format(item['mention_name'])
+
+# ################################################################################################################################
+
+    def get_sender_mention(self, from_):
+        with self.update_lock:
+            if from_ not in self.mentions:
+                self._set_mentions()
+            return self.mentions[from_]
+
+# ################################################################################################################################
+
+    def get_response(self, msg):
+        return msg
+
+# ################################################################################################################################
+
+    def handle(self, client, req):
         self.logger.info(req)
+        req.reply('{} {}'.format(
+            self.get_sender_mention(req.get_mucnick()), self.get_response(req['body'].replace(self.self_mention, '', 1).strip())))
+        req.send()
+
+# ################################################################################################################################
+
+    def on_request(self, client, req):
+        if req['body'].startswith(self.self_mention):
+            self.handle(client, req)
 
 # ################################################################################################################################
 
@@ -108,6 +158,9 @@ class Server(object):
         self.bot = _Bot(self.on_request)
         self.bot.add_client_package('zato.chatops.zato_havocbot_client.%s')
         self.bot.set_settings(havocbot_settings=bot_conf, clients_settings=client_conf)
+
+        from_ = 'Dariusz Suchojad'
+        self.get_sender_mention(from_)
 
         try:
             self.bot.start()

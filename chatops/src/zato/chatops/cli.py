@@ -13,6 +13,7 @@ Licensed under LGPLv3, see LICENSE.txt for terms and conditions.
 
 # Click
 import click
+click.disable_unicode_literals_warning = True
 
 # ConfigObj
 from configobj import ConfigObj

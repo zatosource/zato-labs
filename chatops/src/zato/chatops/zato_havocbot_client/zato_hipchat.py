@@ -31,8 +31,11 @@ class ZatoHipChat(_HipChat):
     def integration_name(self):
         return 'zato_hipchat'
 
+    def reply(self, response):
+        self.client.send_message(mto=req.channel, mbody=req.text, mtype='groupchat')
+
     def handle_message(self, req):
-        self.havocbot.on_request_cb(req)
+        self.havocbot.on_request_cb(self, req)
 
     def connect(self):
         if not self.username:
@@ -61,10 +64,10 @@ class ZatoHipChat(_HipChat):
 class HipMUCBot(_HipMUCBot):
 
     def muc_message(self, msg):
-        logger.info('Got message %s', msg)
+        logger.debug('Got message %s', msg)
         if msg['mucnick'] != self.nick:
             try:
-                self.parent.handle_message(Message(msg['body'], msg['mucnick'], self.room, 'message'))
+                self.parent.handle_message(msg)
             except Exception as e:
                 logger.error(format_exc(e))
 
