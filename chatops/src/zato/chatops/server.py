@@ -40,7 +40,6 @@ class const:
 
 # ################################################################################################################################
 
-
 class Server(object):
     def __init__(self, conf, conf_path):
         self.conf = conf
@@ -82,7 +81,17 @@ class Server(object):
 
 # ################################################################################################################################
 
+    def on_request(self, req):
+        self.logger.info(req)
+
+# ################################################################################################################################
+
     def run_forever(self):
+
+        class _Bot(HavocBot):
+            def __init__(self, on_request_cb, *args, **kwargs):
+                self.on_request_cb = on_request_cb
+                HavocBot.__init__(self, *args, **kwargs)
 
         # So it's easier to find us
         setproctitle(self.name)
@@ -98,9 +107,8 @@ class Server(object):
         client_conf.zato_hipchat = []
         client_conf.zato_hipchat.extend(getattr(self.conf, self.conf.core.chat_provider).items())
 
-        self.bot = HavocBot()
+        self.bot = _Bot(self.on_request)
         self.bot.add_client_package('zato.chatops.zato_havocbot_client.%s')
-
         self.bot.set_settings(havocbot_settings=bot_conf, clients_settings=client_conf)
 
         try:
