@@ -46,16 +46,23 @@ class const:
 
 # ################################################################################################################################
 
+class _Bot(HavocBot):
+    def __init__(self, on_request_cb, *args, **kwargs):
+        self.on_request_cb = on_request_cb
+        HavocBot.__init__(self, *args, **kwargs)
+
+# ################################################################################################################################
+
 class Server(object):
     def __init__(self, conf, conf_path):
         self.conf = conf
         self.conf_path = conf_path
         self.name = '{} ({})'.format(self.conf.core.name, self.conf.core.chat_provider)
-        self.self_mention = self.conf.hipchat.mention
+        #self.self_mention = self.conf.hipchat.mention
         self.mentions = {}
         self.api_url = self.conf.hipchat.api_url
         self.api_token = self.conf.hipchat.api_token
-        self.setup_logging()
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.bot = None
         self.commands = ['info', 'help', 'pr', 'prs', 'meta']
         self.yes_aha = ['Yes?', 'Aha?', 'Mhm?', 'What can I do for you?', 'How can I help you?', 'Anything I can do for you?']
@@ -66,6 +73,7 @@ class Server(object):
     def setup_logging(self):
 
         log_conf = self.conf.logging
+        logging.basicConfig(level=log_conf.level, format=log_conf.format)
 
         log_path = log_conf.log_file
         if not os.path.isabs(log_path):
@@ -160,10 +168,8 @@ class Server(object):
 
     def run_forever(self):
 
-        class _Bot(HavocBot):
-            def __init__(self, on_request_cb, *args, **kwargs):
-                self.on_request_cb = on_request_cb
-                HavocBot.__init__(self, *args, **kwargs)
+        self.setup_logging()
+        self.setup_config()
 
         # So it's easier to find us
         setproctitle(self.name)
@@ -184,7 +190,8 @@ class Server(object):
         self.bot.set_settings(havocbot_settings=bot_conf, clients_settings=client_conf)
 
         try:
-            self.bot.start()
+            #self.bot.start()
+            pass
         except (KeyboardInterrupt, SystemExit):
             self.logger.info('Shutting down %s', self.name)
             if self.bot.clients is not None and len(self.bot.clients):
