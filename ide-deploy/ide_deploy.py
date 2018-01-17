@@ -1,26 +1,22 @@
 # -*- coding: utf-8 -*-
 
 """
-Copyright (C) 2018 Dariusz Suchojad <dsuch at zato.io>
+Copyright (C) 2018, Zato Source s.r.o. https://zato.io
 
 Licensed under LGPLv3, see LICENSE.txt for terms and conditions.
 """
 
-# stdlib
 from __future__ import absolute_import, division, print_function, unicode_literals
-import logging
 
-# 3rd party
+# stdlib
+from traceback import format_exc
+
+# anyjson
 from anyjson import dumps
 
 # Zato
 from zato.common import DATA_FORMAT
-from zato.server.service.internal import AdminService, AdminSIO
 from zato.server.service import Service
-
-
-logger = logging.getLogger(__name__)
-
 
 class Create(Service):
     """ Behave like zato.hot-deploy.create, except support returning an empty
@@ -48,9 +44,9 @@ class Create(Service):
 
         new_payload = dict(self.request.payload, cluster_id=self.server.cluster_id)
         try:
-            upload_response = self.invoke('zato.service.upload-package', dumps(new_payload), data_format=DATA_FORMAT.JSON)
+            self.invoke('zato.service.upload-package', dumps(new_payload), data_format=DATA_FORMAT.JSON)
         except Exception as e:
-            logger.exception('While invoking zato.service.upload-package')
+            self.logger.warn('Could not invoke zato.service.upload-package, e:`%s`', format_exc(e))
             self.response.payload.success = False
             self.response.payload.msg = 'Deployment failed: {}'.format(e)
             return
